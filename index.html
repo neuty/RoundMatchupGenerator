@@ -657,6 +657,31 @@
     box-shadow: 0 24px 64px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.04);
   }
 
+  /* ── Bulk generate row ── */
+  .bulk-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 1.25rem;
+  }
+  .bulk-row input[type="number"] {
+    width: 4.5rem;
+    min-height: 36px;
+    font-size: 0.9rem;
+    padding: 0.35rem 0.6rem;
+    text-align: center;
+  }
+  .bulk-row .btn {
+    min-height: 36px;
+    font-size: 0.84rem;
+    padding: 0.35rem 0.9rem;
+  }
+  .bulk-label {
+    font-size: 0.84rem;
+    color: var(--text-3);
+    white-space: nowrap;
+  }
+
   /* ── Mobile ── */
   @media (max-width: 520px) {
     header { padding: 0.85rem 1rem; }
@@ -733,6 +758,12 @@
           <button class="btn btn-secondary" onclick="openResetModal()">Reset</button>
           <button class="btn btn-primary" onclick="nextRound()">Next Round</button>
         </div>
+      </div>
+      <div class="bulk-row">
+        <span class="bulk-label">Generate</span>
+        <input type="number" id="bulkCount" value="5" min="1" max="99">
+        <span class="bulk-label">rounds</span>
+        <button class="btn btn-secondary" onclick="generateBulk()">Go</button>
       </div>
       <div class="courts-grid" id="courtsGrid"></div>
       <div id="restingDisplay"></div>
@@ -978,6 +1009,11 @@ function confirmReset() {
   for (const p of state.players) initStats(p)
   document.getElementById('game').style.display = 'none'
   document.getElementById('setup').style.display = 'block'
+}
+
+function generateBulk() {
+  const count = Math.max(1, parseInt(document.getElementById('bulkCount').value) || 1)
+  for (let i = 0; i < count; i++) nextRound()
 }
 
 function nextRound() {
