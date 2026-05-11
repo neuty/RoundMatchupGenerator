@@ -782,6 +782,8 @@
     min-width: 2.8rem;
   }
   .h2h-cell.self { color: var(--text-3); }
+  .h2h-cell.h2h-blank { background: transparent !important; min-width: 0; padding: 0; }
+  .h2h-against-label { text-align: center; padding-bottom: 0.2rem !important; }
 
   .h2h-legend {
     display: flex;
@@ -1380,37 +1382,43 @@ function toggleH2H() {
   renderH2H()
 }
 
-function h2hColor(wins, losses) {
-  const total = wins + losses
-  if (total === 0) return 'transparent'
-  const ratio = wins / total
-  if (ratio > 0.5) {
-    const t = (ratio - 0.5) * 2
-    return `rgba(34,197,94,${(0.12 + t * 0.55).toFixed(2)})`
-  } else if (ratio < 0.5) {
-    const t = (0.5 - ratio) * 2
-    return `rgba(248,113,113,${(0.12 + t * 0.55).toFixed(2)})`
-  }
-  return 'rgba(148,163,184,0.15)'
-}
-
 function renderH2H() {
   if (!h2hOpen || !state.scorecard) return
   const players = state.players
+  const n = players.length
   const abbr = name => name.length > 9 ? name.slice(0, 8) + '…' : name
+
+  // Collect win counts from upper-triangle cells that have data for relative scaling
+  const allWins = []
+  for (let i = 0; i < n - 1; i++) {
+    for (let j = i + 1; j < n; j++) {
+      const w = state.stats[players[i]].winsAgainst[players[j]] || 0
+      const l = state.stats[players[j]].winsAgainst[players[i]] || 0
+      if (w + l > 0) allWins.push(w)
+    }
+  }
+  const maxW = allWins.length ? Math.max(...allWins) : 0
+  const minW = allWins.length ? Math.min(...allWins) : 0
+
+  const cellColor = wins => {
+    if (maxW === minW) return maxW === 0 ? 'transparent' : 'rgba(148,163,184,0.25)'
+    const t = (wins - minW) / (maxW - minW)
+    if (t >= 0.5) return `rgba(34,197,94,${(0.15 + (t - 0.5) * 2 * 0.6).toFixed(2)})`
+    return `rgba(248,113,113,${(0.15 + (0.5 - t) * 2 * 0.6).toFixed(2)})`
+  }
 
   const colHeaders = players.map(q =>
     `<th class="h2h-col-label" title="${esc(q)}">${esc(abbr(q))}</th>`
   ).join('')
 
-  const bodyRows = players.map(p => {
-    const cells = players.map(q => {
-      if (p === q) return `<td class="h2h-cell self">—</td>`
+  // Upper triangle only — last player has no row to show
+  const bodyRows = players.slice(0, -1).map((p, i) => {
+    const cells = players.map((q, j) => {
+      if (j <= i) return `<td class="h2h-cell h2h-blank"></td>`
       const wins   = state.stats[p].winsAgainst[q] || 0
       const losses = state.stats[q].winsAgainst[p] || 0
-      const bg = h2hColor(wins, losses)
-      const label = wins + losses === 0 ? '–' : `${wins}–${losses}`
-      return `<td class="h2h-cell" style="background:${bg}">${label}</td>`
+      const hasData = wins + losses > 0
+      return `<td class="h2h-cell" style="background:${hasData ? cellColor(wins) : 'transparent'}">${hasData ? `${wins}–${losses}` : '–'}</td>`
     }).join('')
     return `<tr><td class="h2h-cell h2h-row-label">${esc(p)}</td>${cells}</tr>`
   }).join('')
@@ -1419,14 +1427,16 @@ function renderH2H() {
     <div class="h2h-wrap">
       <div class="h2h-scroll">
         <table class="h2h-table">
-          <thead><tr><th></th>${colHeaders}</tr></thead>
+          <thead>
+            <tr><th></th><th colspan="${n}" class="h2h-against-label">Against</th></tr>
+            <tr><th></th>${colHeaders}</tr>
+          </thead>
           <tbody>${bodyRows}</tbody>
         </table>
       </div>
       <div class="h2h-legend">
-        <span class="legend-item"><span class="legend-swatch" style="background:rgba(34,197,94,0.55)"></span>More wins</span>
-        <span class="legend-item"><span class="legend-swatch" style="background:rgba(248,113,113,0.55)"></span>More losses</span>
-        <span class="legend-item"><span class="legend-swatch" style="background:rgba(148,163,184,0.2)"></span>Even</span>
+        <span class="legend-item"><span class="legend-swatch" style="background:rgba(34,197,94,0.75)"></span>Most wins</span>
+        <span class="legend-item"><span class="legend-swatch" style="background:rgba(248,113,113,0.75)"></span>Fewest wins</span>
       </div>
     </div>`
 }
@@ -1493,11 +1503,11 @@ function renderGame() {
       <div class="score-section">
         <input type="number" class="score-input${t1Won ? ' score-win' : both ? ' score-lose' : ''}"
           min="0" value="${s1 !== null ? s1 : ''}" placeholder="—"
-          oninput="handleScore(${curRoundIdx}, ${i}, 0, this.value)">
+          onchange="handleScore(${curRoundIdx}, ${i}, 0, this.value)">
         <div class="score-sep">–</div>
         <input type="number" class="score-input${t2Won ? ' score-win' : both ? ' score-lose' : ''}"
           min="0" value="${s2 !== null ? s2 : ''}" placeholder="—"
-          oninput="handleScore(${curRoundIdx}, ${i}, 1, this.value)">
+          onchange="handleScore(${curRoundIdx}, ${i}, 1, this.value)">
       </div>` : ''
     return `
     <div class="court-card">
@@ -1537,11 +1547,11 @@ function renderGame() {
             <span class="history-sc-team${t1Won ? ' hw' : t2Won ? ' hl' : ''}">${t1.map(esc).join(' & ')}</span>
             <input type="number" class="score-input-sm${t1Won ? ' score-win' : both ? ' score-lose' : ''}"
               min="0" value="${s1 !== null ? s1 : ''}" placeholder="—"
-              oninput="handleScore(${rIdx}, ${i}, 0, this.value)">
+              onchange="handleScore(${rIdx}, ${i}, 0, this.value)">
             <span class="score-sep-sm">–</span>
             <input type="number" class="score-input-sm${t2Won ? ' score-win' : both ? ' score-lose' : ''}"
               min="0" value="${s2 !== null ? s2 : ''}" placeholder="—"
-              oninput="handleScore(${rIdx}, ${i}, 1, this.value)">
+              onchange="handleScore(${rIdx}, ${i}, 1, this.value)">
             <span class="history-sc-team${t2Won ? ' hw' : t1Won ? ' hl' : ''}">${t2.map(esc).join(' & ')}</span>
           </div>`
       }).join('')
