@@ -233,6 +233,33 @@
   .input-row { display: flex; gap: 0.5rem; }
   .input-row input { flex: 1; }
 
+  .seed-input-group {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .seed-text-input {
+    width: 7.5rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-family: 'Courier New', monospace;
+    font-size: 0.85rem;
+  }
+  .seed-refresh {
+    padding: 0.3rem 0.55rem;
+    font-size: 1.05rem;
+    line-height: 1;
+    height: auto;
+  }
+  .seed-badge {
+    font-size: 0.68rem;
+    color: var(--text-3);
+    letter-spacing: 0.06em;
+    font-family: 'Courier New', monospace;
+    margin-top: 0.15rem;
+  }
+  .seed-badge strong { color: var(--text-2); font-weight: 700; }
+
   .setup-actions {
     margin-top: 1.5rem;
     display: flex;
@@ -1076,6 +1103,13 @@
           <span class="toggle-track"></span>
         </label>
       </div>
+      <div class="setting-row">
+        <label for="seedInput">Session seed</label>
+        <div class="seed-input-group">
+          <input type="text" id="seedInput" class="seed-text-input" placeholder="Auto" maxlength="12" autocomplete="off" spellcheck="false">
+          <button class="btn btn-ghost seed-refresh" onclick="refreshSeed()" title="Generate new seed">↻</button>
+        </div>
+      </div>
     </div>
 
     <div class="card">
@@ -1117,6 +1151,7 @@
         <input type="number" id="bulkCount" value="5" min="1" max="99">
         <span class="bulk-label">rounds</span>
         <button class="btn btn-secondary" onclick="generateBulk()">Go</button>
+        <span class="seed-badge" id="activeSeedBadge"></span>
       </div>
       <div class="courts-grid" id="courtsGrid"></div>
       <div id="restingDisplay"></div>
@@ -1166,6 +1201,7 @@ const state = {
   n: 2,
   courts: 1,
   scorecard: false,
+  seed: '',
   currentRound: 0,
   rounds: [],
   usedMatchups: new Set(),
@@ -1186,6 +1222,46 @@ function initStats(name) {
     pointsFor: 0,
     pointsAgainst: 0
   }
+}
+
+// --- Seeded RNG ---
+
+function mulberry32(seed) {
+  return () => {
+    seed |= 0; seed = seed + 0x6D2B79F5 | 0
+    let t = Math.imul(seed ^ seed >>> 15, 1 | seed)
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t
+    return ((t ^ t >>> 14) >>> 0) / 4294967296
+  }
+}
+
+function hashSeed(str) {
+  let h = 0x811c9dc5
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i)
+    h = Math.imul(h, 0x01000193) >>> 0
+  }
+  return h
+}
+
+function randomSeed() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  let s = ''
+  for (let i = 0; i < 6; i++) s += chars[Math.floor(Math.random() * chars.length)]
+  return s
+}
+
+function seededShuffle(arr, rng) {
+  const a = [...arr]
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]]
+  }
+  return a
+}
+
+function refreshSeed() {
+  document.getElementById('seedInput').value = randomSeed()
 }
 
 // --- Combinatorics ---
@@ -1361,6 +1437,14 @@ function startGame() {
     alert(`Need at least ${2 * state.n} players for ${state.n}v${state.n}.`)
     return
   }
+  // Apply seed: sort alphabetically (order-independent) then shuffle deterministically
+  const rawSeed = document.getElementById('seedInput').value.trim().toUpperCase() || randomSeed()
+  state.seed = rawSeed
+  document.getElementById('seedInput').value = rawSeed
+  const rng = mulberry32(hashSeed(rawSeed))
+  state.players = seededShuffle([...state.players].sort(), rng)
+  document.getElementById('activeSeedBadge').innerHTML = `seed: <strong>${esc(rawSeed)}</strong>`
+
   document.getElementById('standingsPanel').style.display = state.scorecard ? 'block' : 'none'
   document.getElementById('setup').style.display = 'none'
   document.getElementById('game').style.display = 'block'
@@ -1688,7 +1772,7 @@ function exportSession() {
   lines.push('DOUBLES SESSION')
   lines.push(`${dateStr} at ${timeStr}`)
   lines.push(`Players (${state.players.length}): ${state.players.join(', ')}`)
-  lines.push(`Format: ${state.n}v${state.n} · ${state.courts} court${state.courts !== 1 ? 's' : ''}${state.scorecard ? ' · Scorecard' : ''}`)
+  lines.push(`Format: ${state.n}v${state.n} · ${state.courts} court${state.courts !== 1 ? 's' : ''}${state.scorecard ? ' · Scorecard' : ''} · Seed: ${state.seed}`)
   lines.push('')
 
   for (const r of state.rounds) {
