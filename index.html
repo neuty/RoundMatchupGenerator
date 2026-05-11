@@ -474,7 +474,9 @@
   }
 
   /* ── Dark mode — Solarpunk ─────────────────────────────────────────────
-     Deep forest greens, solar gold, bioluminescent lime.
+     Deep forest greens + solar lime (actions) + electric cyan (sport).
+     Lime (#a3e635) = energy / player actions
+     Cyan (#22d3ee) = technology / court indicators
   ─────────────────────────────────────────────────────────────────────── */
   [data-theme="dark"] {
     --bg:           #080f0a;
@@ -492,6 +494,7 @@
     --text:         #ecfdf5;
     --text-2:       #86efac;
     --text-3:       #4ade80;
+    --neon:         #22d3ee;
   }
 
   [data-theme="dark"] header { background: #030706; }
@@ -548,16 +551,20 @@
   }
 
   [data-theme="dark"] .vs-badge {
-    color: var(--green);
-    background: rgba(52,211,153,0.1);
-    border-color: rgba(52,211,153,0.18);
+    color: var(--neon);
+    background: rgba(34,211,238,0.08);
+    border-color: rgba(34,211,238,0.2);
   }
-  [data-theme="dark"] .court-dot { background: var(--green); }
-  [data-theme="dark"] .court-label { color: var(--green); }
+  [data-theme="dark"] .court-dot { background: var(--neon); }
+  [data-theme="dark"] .court-label { color: var(--neon); }
+  [data-theme="dark"] .court-card {
+    border-color: rgba(34,211,238,0.18);
+    box-shadow: 0 0 0 1px rgba(34,211,238,0.06), 0 4px 16px rgba(34,211,238,0.04);
+  }
 
   [data-theme="dark"] .history-pill {
-    background: rgba(163,230,53,0.1);
-    color: var(--primary);
+    background: rgba(34,211,238,0.1);
+    color: var(--neon);
   }
   [data-theme="dark"] .history-rest { color: var(--amber); }
 
