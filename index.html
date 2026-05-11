@@ -937,7 +937,7 @@
 
   /* Compact score inputs inside history */
   .score-input-sm {
-    width: 2.6rem;
+    width: 3.5rem;
     flex-shrink: 0;
     height: 26px;
     font-size: 0.82rem;
@@ -1111,7 +1111,9 @@ function initStats(name) {
     winsAgainst: {},
     wins: 0,
     losses: 0,
-    draws: 0
+    draws: 0,
+    pointsFor: 0,
+    pointsAgainst: 0
   }
 }
 
@@ -1349,6 +1351,8 @@ function recalculateWinLoss() {
     state.stats[p].losses = 0
     state.stats[p].draws = 0
     state.stats[p].winsAgainst = {}
+    state.stats[p].pointsFor = 0
+    state.stats[p].pointsAgainst = 0
   }
   for (const round of state.rounds) {
     if (!round.scores) continue
@@ -1357,6 +1361,8 @@ function recalculateWinLoss() {
       if (!sc || sc[0] === null || sc[1] === null) return
       const [s1, s2] = sc
       const inc = (obj, key) => { obj[key] = (obj[key] || 0) + 1 }
+      t1.forEach(p => { if (state.stats[p]) { state.stats[p].pointsFor += s1; state.stats[p].pointsAgainst += s2 } })
+      t2.forEach(p => { if (state.stats[p]) { state.stats[p].pointsFor += s2; state.stats[p].pointsAgainst += s1 } })
       if (s1 > s2) {
         t1.forEach(p => { if (state.stats[p]) { state.stats[p].wins++; t2.forEach(q => inc(state.stats[p].winsAgainst, q)) } })
         t2.forEach(p => state.stats[p] && state.stats[p].losses++)
@@ -1434,10 +1440,6 @@ function renderH2H() {
           <tbody>${bodyRows}</tbody>
         </table>
       </div>
-      <div class="h2h-legend">
-        <span class="legend-item"><span class="legend-swatch" style="background:rgba(34,197,94,0.75)"></span>Most wins</span>
-        <span class="legend-item"><span class="legend-swatch" style="background:rgba(248,113,113,0.75)"></span>Fewest wins</span>
-      </div>
     </div>`
 }
 
@@ -1462,7 +1464,7 @@ function renderStandings() {
           <div class="stat-bar-loss" style="width:${lossPct}%"></div>
         </div>
         <div class="stat-nums">
-          <span class="w">${s.wins}W</span> · <span class="l">${s.losses}L</span>${s.draws ? ` · ${s.draws}D` : ''} · ${gp}GP · ${s.restCount}R
+          <span class="w">${s.wins}W</span> · <span class="l">${s.losses}L</span>${s.draws ? ` · ${s.draws}D` : ''} · ${gp}GP · ${s.restCount}R · <span class="w">${s.pointsFor}F</span> · <span class="l">${s.pointsAgainst}A</span>
         </div>
       </div>`
   }).join('')
