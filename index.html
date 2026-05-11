@@ -682,6 +682,151 @@
     white-space: nowrap;
   }
 
+  /* ── Toggle switch ── */
+  .toggle-row { justify-content: space-between; }
+  .toggle { display: flex; align-items: center; cursor: pointer; flex-shrink: 0; }
+  .toggle input { display: none; }
+  .toggle-track {
+    width: 42px; height: 24px;
+    background: var(--border);
+    border-radius: 999px;
+    position: relative;
+    transition: background 0.2s;
+    flex-shrink: 0;
+  }
+  .toggle-track::after {
+    content: '';
+    position: absolute;
+    width: 18px; height: 18px;
+    background: white;
+    border-radius: 50%;
+    top: 3px; left: 3px;
+    transition: transform 0.2s;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+  }
+  .toggle input:checked + .toggle-track { background: var(--primary); }
+  .toggle input:checked + .toggle-track::after { transform: translateX(18px); }
+
+  /* ── Standings panel ── */
+  .standings-card { margin-bottom: 1rem; }
+
+  .stat-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.55rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .stat-row:last-child { border-bottom: none; }
+
+  .stat-name {
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--text);
+    min-width: 5.5rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .stat-bar-track {
+    flex: 1;
+    height: 8px;
+    background: var(--border);
+    border-radius: 999px;
+    position: relative;
+    overflow: hidden;
+  }
+  .stat-bar-win {
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    background: #22c55e;
+    border-radius: 999px;
+    transition: width 0.35s ease;
+  }
+  .stat-bar-loss {
+    position: absolute;
+    right: 0; top: 0; bottom: 0;
+    background: #f87171;
+    border-radius: 999px;
+    transition: width 0.35s ease;
+  }
+
+  .stat-nums {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-2);
+    white-space: nowrap;
+    min-width: 11rem;
+    text-align: right;
+  }
+  .stat-nums .w { color: #22c55e; }
+  .stat-nums .l { color: #f87171; }
+
+  /* ── Score inputs on court cards ── */
+  .score-section {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-top: 0.6rem;
+    padding-top: 0.6rem;
+    border-top: 1px solid var(--green-border);
+  }
+  .score-input {
+    flex: 1;
+    min-height: 36px;
+    font-size: 1.1rem;
+    font-weight: 700;
+    text-align: center;
+    padding: 0.25rem 0.4rem;
+    border-radius: 8px;
+    border: 1.5px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    -moz-appearance: textfield;
+  }
+  .score-input::-webkit-inner-spin-button,
+  .score-input::-webkit-outer-spin-button { -webkit-appearance: none; }
+  .score-input:focus { border-color: var(--primary); outline: none; }
+  .score-sep {
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: var(--text-3);
+    flex-shrink: 0;
+  }
+
+  .score-input.score-win {
+    border-color: #22c55e;
+    background: #f0fdf4;
+    color: #15803d;
+  }
+  .score-input.score-lose {
+    border-color: #fca5a5;
+    background: #fff1f2;
+    color: #b91c1c;
+    opacity: 0.8;
+  }
+  .team-box.team-win {
+    border: 1.5px solid #86efac;
+    background: #f0fdf4;
+  }
+  .team-box.team-lose { opacity: 0.6; }
+
+  [data-theme="dark"] .score-input.score-win {
+    border-color: #4ade80;
+    background: #052e16;
+    color: #4ade80;
+  }
+  [data-theme="dark"] .score-input.score-lose {
+    border-color: #f87171;
+    background: #1c0505;
+    color: #f87171;
+  }
+  [data-theme="dark"] .team-box.team-win {
+    border-color: #4ade80;
+    background: #052e16;
+  }
+
   /* ── Mobile ── */
   @media (max-width: 520px) {
     header { padding: 0.85rem 1rem; }
@@ -731,6 +876,13 @@
         <label for="numCourts">Number of courts</label>
         <input type="number" id="numCourts" value="1" min="1" max="1">
       </div>
+      <div class="setting-row toggle-row">
+        <label for="scorecardEnabled">Enable Scorecard</label>
+        <label class="toggle">
+          <input type="checkbox" id="scorecardEnabled">
+          <span class="toggle-track"></span>
+        </label>
+      </div>
     </div>
 
     <div class="card">
@@ -748,6 +900,10 @@
 
   <!-- GAME -->
   <div id="game" style="display:none">
+    <div class="card standings-card" id="standingsPanel" style="display:none">
+      <div class="card-title">Standings</div>
+      <div id="standingsContent"></div>
+    </div>
     <div class="card">
       <div class="round-header">
         <div class="round-meta">
@@ -796,6 +952,7 @@ const state = {
   players: [],
   n: 2,
   courts: 1,
+  scorecard: false,
   currentRound: 0,
   rounds: [],
   usedMatchups: new Set(),
@@ -808,7 +965,10 @@ function initStats(name) {
     restCount: 0,
     lastRestRound: -999,
     teammates: {},
-    opponents: {}
+    opponents: {},
+    wins: 0,
+    losses: 0,
+    draws: 0
   }
 }
 
@@ -980,10 +1140,12 @@ function startGame() {
     parseInt(document.getElementById('numCourts').value) || 1,
     Math.floor(state.players.length / (2 * state.n))
   )
+  state.scorecard = document.getElementById('scorecardEnabled').checked
   if (state.players.length < 2 * state.n) {
     alert(`Need at least ${2 * state.n} players for ${state.n}v${state.n}.`)
     return
   }
+  document.getElementById('standingsPanel').style.display = state.scorecard ? 'block' : 'none'
   document.getElementById('setup').style.display = 'none'
   document.getElementById('game').style.display = 'block'
   nextRound()
@@ -1007,6 +1169,7 @@ function confirmReset() {
   state.rounds = []
   state.usedMatchups = new Set()
   for (const p of state.players) initStats(p)
+  document.getElementById('standingsPanel').style.display = 'none'
   document.getElementById('game').style.display = 'none'
   document.getElementById('setup').style.display = 'block'
 }
@@ -1026,6 +1189,68 @@ function nextRound() {
   renderGame()
 }
 
+// --- Scorecard ---
+
+function handleScore(courtIdx, teamIdx, value) {
+  const round = state.rounds[state.rounds.length - 1]
+  if (!round.scores) round.scores = round.matchups.map(() => [null, null])
+  round.scores[courtIdx][teamIdx] = value === '' ? null : Number(value)
+  recalculateWinLoss()
+  renderGame()
+}
+
+function recalculateWinLoss() {
+  for (const p of state.players) {
+    state.stats[p].wins = 0
+    state.stats[p].losses = 0
+    state.stats[p].draws = 0
+  }
+  for (const round of state.rounds) {
+    if (!round.scores) continue
+    round.matchups.forEach(([t1, t2], i) => {
+      const sc = round.scores[i]
+      if (!sc || sc[0] === null || sc[1] === null) return
+      const [s1, s2] = sc
+      if (s1 > s2) {
+        t1.forEach(p => state.stats[p] && state.stats[p].wins++)
+        t2.forEach(p => state.stats[p] && state.stats[p].losses++)
+      } else if (s2 > s1) {
+        t2.forEach(p => state.stats[p] && state.stats[p].wins++)
+        t1.forEach(p => state.stats[p] && state.stats[p].losses++)
+      } else {
+        ;[...t1, ...t2].forEach(p => state.stats[p] && state.stats[p].draws++)
+      }
+    })
+  }
+}
+
+function renderStandings() {
+  if (!state.scorecard) return
+  const sorted = [...state.players].sort((a, b) => {
+    const sa = state.stats[a], sb = state.stats[b]
+    if (sb.wins !== sa.wins) return sb.wins - sa.wins
+    if (sa.losses !== sb.losses) return sa.losses - sb.losses
+    return a.localeCompare(b)
+  })
+  document.getElementById('standingsContent').innerHTML = sorted.map(p => {
+    const s = state.stats[p]
+    const gp = s.roundsPlayed
+    const winPct  = gp > 0 ? (s.wins   / gp * 100).toFixed(1) : 0
+    const lossPct = gp > 0 ? (s.losses / gp * 100).toFixed(1) : 0
+    return `
+      <div class="stat-row">
+        <div class="stat-name">${esc(p)}</div>
+        <div class="stat-bar-track">
+          <div class="stat-bar-win"  style="width:${winPct}%"></div>
+          <div class="stat-bar-loss" style="width:${lossPct}%"></div>
+        </div>
+        <div class="stat-nums">
+          <span class="w">${s.wins}W</span> · <span class="l">${s.losses}L</span>${s.draws ? ` · ${s.draws}D` : ''} · ${gp}GP · ${s.restCount}R
+        </div>
+      </div>`
+  }).join('')
+}
+
 // --- Rendering ---
 
 function esc(s) {
@@ -1043,11 +1268,28 @@ function renderSetup() {
 }
 
 function renderGame() {
-  const { round, matchups, resting } = state.rounds[state.rounds.length - 1]
+  const currentRound = state.rounds[state.rounds.length - 1]
+  const { round, matchups, resting } = currentRound
+  const roundScores = currentRound.scores || []
 
   document.getElementById('roundNumber').textContent = round
 
-  document.getElementById('courtsGrid').innerHTML = matchups.map(([t1, t2], i) => `
+  document.getElementById('courtsGrid').innerHTML = matchups.map(([t1, t2], i) => {
+    const [s1, s2] = roundScores[i] || [null, null]
+    const both = s1 !== null && s2 !== null
+    const t1Won = both && s1 > s2
+    const t2Won = both && s2 > s1
+    const scoreSection = state.scorecard ? `
+      <div class="score-section">
+        <input type="number" class="score-input${t1Won ? ' score-win' : both && !t1Won ? ' score-lose' : ''}"
+          min="0" value="${s1 !== null ? s1 : ''}" placeholder="—"
+          oninput="handleScore(${i}, 0, this.value)">
+        <div class="score-sep">–</div>
+        <input type="number" class="score-input${t2Won ? ' score-win' : both && !t2Won ? ' score-lose' : ''}"
+          min="0" value="${s2 !== null ? s2 : ''}" placeholder="—"
+          oninput="handleScore(${i}, 1, this.value)">
+      </div>` : ''
+    return `
     <div class="court-card">
       <div class="court-header">
         <div class="court-dot"></div>
@@ -1055,13 +1297,16 @@ function renderGame() {
       </div>
       <div class="court-body">
         <div class="matchup-row">
-          <div class="team-box">${t1.map(esc).join('<br>')}</div>
+          <div class="team-box${t1Won ? ' team-win' : t2Won ? ' team-lose' : ''}">${t1.map(esc).join('<br>')}</div>
           <div class="vs-badge">VS</div>
-          <div class="team-box">${t2.map(esc).join('<br>')}</div>
+          <div class="team-box${t2Won ? ' team-win' : t1Won ? ' team-lose' : ''}">${t2.map(esc).join('<br>')}</div>
         </div>
+        ${scoreSection}
       </div>
-    </div>
-  `).join('')
+    </div>`
+  }).join('')
+
+  renderStandings()
 
   document.getElementById('restingDisplay').innerHTML = resting.length
     ? `<div class="resting-notice"><span class="resting-icon">⏸</span> Resting: <strong>${resting.map(esc).join(', ')}</strong></div>`
