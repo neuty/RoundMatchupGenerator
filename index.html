@@ -763,68 +763,116 @@
   .stat-nums .w { color: #22c55e; }
   .stat-nums .l { color: #f87171; }
 
-  /* ── Score inputs on court cards ── */
+  /* ── Score inputs on court cards ──
+     Mirror the matchup-row flex proportions exactly so inputs sit
+     directly under their respective team boxes with no overflow.     ── */
   .score-section {
     display: flex;
     align-items: center;
-    gap: 0.4rem;
-    margin-top: 0.6rem;
-    padding-top: 0.6rem;
+    gap: 0.5rem;
+    margin-top: 0.55rem;
+    padding-top: 0.55rem;
     border-top: 1px solid var(--green-border);
   }
   .score-input {
     flex: 1;
-    min-height: 36px;
-    font-size: 1.1rem;
+    min-width: 0;           /* allow flex shrink below content size */
+    height: 34px;
+    font-size: 0.95rem;
     font-weight: 700;
     text-align: center;
-    padding: 0.25rem 0.4rem;
+    padding: 0.2rem 0.3rem;
     border-radius: 8px;
     border: 1.5px solid var(--border);
     background: var(--surface);
     color: var(--text);
     -moz-appearance: textfield;
+    transition: border-color 0.15s, background 0.15s, color 0.15s;
   }
   .score-input::-webkit-inner-spin-button,
   .score-input::-webkit-outer-spin-button { -webkit-appearance: none; }
   .score-input:focus { border-color: var(--primary); outline: none; }
+
+  /* Separator spans the same fixed width as .vs-badge so columns align */
   .score-sep {
-    font-size: 0.9rem;
+    width: 2.1rem;
+    flex-shrink: 0;
+    text-align: center;
+    font-size: 0.8rem;
     font-weight: 700;
     color: var(--text-3);
-    flex-shrink: 0;
   }
 
-  .score-input.score-win {
-    border-color: #22c55e;
-    background: #f0fdf4;
-    color: #15803d;
-  }
-  .score-input.score-lose {
-    border-color: #fca5a5;
-    background: #fff1f2;
-    color: #b91c1c;
-    opacity: 0.8;
-  }
-  .team-box.team-win {
-    border: 1.5px solid #86efac;
-    background: #f0fdf4;
-  }
+  .score-input.score-win { border-color: #22c55e; background: #f0fdf4; color: #15803d; }
+  .score-input.score-lose { border-color: #fca5a5; background: #fff1f2; color: #b91c1c; opacity: 0.8; }
+  .team-box.team-win { border: 1.5px solid #86efac; background: #f0fdf4; }
   .team-box.team-lose { opacity: 0.6; }
 
-  [data-theme="dark"] .score-input.score-win {
-    border-color: #4ade80;
-    background: #052e16;
-    color: #4ade80;
+  [data-theme="dark"] .score-input.score-win  { border-color: #4ade80; background: #052e16; color: #4ade80; }
+  [data-theme="dark"] .score-input.score-lose { border-color: #f87171; background: #1c0505; color: #f87171; }
+  [data-theme="dark"] .team-box.team-win      { border-color: #4ade80; background: #052e16; }
+
+  /* ── Scorecard history rows ── */
+  .history-row-sc {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.35rem;
+    padding: 0.7rem 0;
   }
-  [data-theme="dark"] .score-input.score-lose {
-    border-color: #f87171;
-    background: #1c0505;
-    color: #f87171;
+  .history-sc-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
   }
-  [data-theme="dark"] .team-box.team-win {
-    border-color: #4ade80;
-    background: #052e16;
+  .history-sc-matchup {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    width: 100%;
+    font-size: 0.81rem;
+  }
+  .history-sc-team {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-2);
+  }
+  .history-sc-team:last-child { text-align: right; }
+  .history-sc-team.hw { color: #22c55e; font-weight: 600; }
+  .history-sc-team.hl { color: var(--text-3); }
+  [data-theme="dark"] .history-sc-team.hw { color: #4ade80; }
+
+  /* Compact score inputs inside history */
+  .score-input-sm {
+    width: 2.6rem;
+    flex-shrink: 0;
+    height: 26px;
+    font-size: 0.82rem;
+    font-weight: 700;
+    text-align: center;
+    padding: 0.1rem 0.2rem;
+    border-radius: 6px;
+    border: 1.5px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    -moz-appearance: textfield;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .score-input-sm::-webkit-inner-spin-button,
+  .score-input-sm::-webkit-outer-spin-button { -webkit-appearance: none; }
+  .score-input-sm:focus { border-color: var(--primary); outline: none; }
+  .score-input-sm.score-win  { border-color: #22c55e; background: #f0fdf4; color: #15803d; }
+  .score-input-sm.score-lose { border-color: #fca5a5; background: #fff1f2; color: #b91c1c; opacity: 0.8; }
+  [data-theme="dark"] .score-input-sm.score-win  { border-color: #4ade80; background: #052e16; color: #4ade80; }
+  [data-theme="dark"] .score-input-sm.score-lose { border-color: #f87171; background: #1c0505; color: #f87171; }
+  .score-sep-sm {
+    flex-shrink: 0;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--text-3);
   }
 
   /* ── Mobile ── */
@@ -1191,8 +1239,9 @@ function nextRound() {
 
 // --- Scorecard ---
 
-function handleScore(courtIdx, teamIdx, value) {
-  const round = state.rounds[state.rounds.length - 1]
+function handleScore(roundIdx, courtIdx, teamIdx, value) {
+  const round = state.rounds[roundIdx]
+  if (!round) return
   if (!round.scores) round.scores = round.matchups.map(() => [null, null])
   round.scores[courtIdx][teamIdx] = value === '' ? null : Number(value)
   recalculateWinLoss()
@@ -1274,6 +1323,8 @@ function renderGame() {
 
   document.getElementById('roundNumber').textContent = round
 
+  const curRoundIdx = state.rounds.length - 1
+
   document.getElementById('courtsGrid').innerHTML = matchups.map(([t1, t2], i) => {
     const [s1, s2] = roundScores[i] || [null, null]
     const both = s1 !== null && s2 !== null
@@ -1281,13 +1332,13 @@ function renderGame() {
     const t2Won = both && s2 > s1
     const scoreSection = state.scorecard ? `
       <div class="score-section">
-        <input type="number" class="score-input${t1Won ? ' score-win' : both && !t1Won ? ' score-lose' : ''}"
+        <input type="number" class="score-input${t1Won ? ' score-win' : both ? ' score-lose' : ''}"
           min="0" value="${s1 !== null ? s1 : ''}" placeholder="—"
-          oninput="handleScore(${i}, 0, this.value)">
+          oninput="handleScore(${curRoundIdx}, ${i}, 0, this.value)">
         <div class="score-sep">–</div>
-        <input type="number" class="score-input${t2Won ? ' score-win' : both && !t2Won ? ' score-lose' : ''}"
+        <input type="number" class="score-input${t2Won ? ' score-win' : both ? ' score-lose' : ''}"
           min="0" value="${s2 !== null ? s2 : ''}" placeholder="—"
-          oninput="handleScore(${i}, 1, this.value)">
+          oninput="handleScore(${curRoundIdx}, ${i}, 1, this.value)">
       </div>` : ''
     return `
     <div class="court-card">
@@ -1312,13 +1363,46 @@ function renderGame() {
     ? `<div class="resting-notice"><span class="resting-icon">⏸</span> Resting: <strong>${resting.map(esc).join(', ')}</strong></div>`
     : ''
 
-  document.getElementById('historyList').innerHTML = state.rounds.slice().reverse().map(r => `
-    <div class="history-row">
-      <span class="history-pill">R${r.round}</span>
-      ${r.matchups.map(([t1, t2]) => `${t1.join(' & ')} vs ${t2.join(' & ')}`).join(' · ')}
-      ${r.resting.length ? `<span class="history-rest">· rest: ${r.resting.map(esc).join(', ')}</span>` : ''}
-    </div>
-  `).join('')
+  document.getElementById('historyList').innerHTML = state.rounds.slice().reverse().map(r => {
+    const rIdx = r.round - 1
+    const sc = r.scores || []
+
+    if (state.scorecard) {
+      const matchupRows = r.matchups.map(([t1, t2], i) => {
+        const [s1, s2] = sc[i] || [null, null]
+        const both = s1 !== null && s2 !== null
+        const t1Won = both && s1 > s2
+        const t2Won = both && s2 > s1
+        return `
+          <div class="history-sc-matchup">
+            <span class="history-sc-team${t1Won ? ' hw' : t2Won ? ' hl' : ''}">${t1.map(esc).join(' & ')}</span>
+            <input type="number" class="score-input-sm${t1Won ? ' score-win' : both ? ' score-lose' : ''}"
+              min="0" value="${s1 !== null ? s1 : ''}" placeholder="—"
+              oninput="handleScore(${rIdx}, ${i}, 0, this.value)">
+            <span class="score-sep-sm">–</span>
+            <input type="number" class="score-input-sm${t2Won ? ' score-win' : both ? ' score-lose' : ''}"
+              min="0" value="${s2 !== null ? s2 : ''}" placeholder="—"
+              oninput="handleScore(${rIdx}, ${i}, 1, this.value)">
+            <span class="history-sc-team${t2Won ? ' hw' : t1Won ? ' hl' : ''}">${t2.map(esc).join(' & ')}</span>
+          </div>`
+      }).join('')
+      return `
+        <div class="history-row history-row-sc">
+          <div class="history-sc-header">
+            <span class="history-pill">R${r.round}</span>
+            ${r.resting.length ? `<span class="history-rest">rest: ${r.resting.map(esc).join(', ')}</span>` : ''}
+          </div>
+          ${matchupRows}
+        </div>`
+    }
+
+    return `
+      <div class="history-row">
+        <span class="history-pill">R${r.round}</span>
+        ${r.matchups.map(([t1, t2]) => `${t1.join(' & ')} vs ${t2.join(' & ')}`).join(' · ')}
+        ${r.resting.length ? `<span class="history-rest">· rest: ${r.resting.map(esc).join(', ')}</span>` : ''}
+      </div>`
+  }).join('')
 }
 
 document.getElementById('playerInput').addEventListener('keydown', e => {
