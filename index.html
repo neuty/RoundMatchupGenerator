@@ -710,6 +710,94 @@
   /* ── Standings panel ── */
   .standings-card { margin-bottom: 1rem; }
 
+  .standings-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1.1rem;
+  }
+  .standings-card-header .card-title { margin-bottom: 0; }
+
+  .expand-btn {
+    background: none;
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    padding: 0.28rem 0.65rem;
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: var(--text-3);
+    cursor: pointer;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    transition: all 0.15s;
+    touch-action: manipulation;
+    white-space: nowrap;
+    font-family: inherit;
+  }
+  .expand-btn:hover,
+  .expand-btn.open { border-color: var(--primary); color: var(--primary); }
+
+  /* ── H2H matrix ── */
+  .h2h-wrap {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+  }
+  .h2h-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+  .h2h-table {
+    border-collapse: separate;
+    border-spacing: 3px;
+    font-size: 0.76rem;
+    white-space: nowrap;
+  }
+  .h2h-table thead th {
+    font-weight: 700;
+    color: var(--text-3);
+    font-size: 0.62rem;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    padding: 0 0.3rem 0.5rem;
+    text-align: center;
+  }
+  .h2h-col-label {
+    max-width: 5rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .h2h-row-label {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--text-2);
+    text-align: left !important;
+    padding-right: 0.75rem;
+    white-space: nowrap;
+  }
+  .h2h-cell {
+    border-radius: 6px;
+    padding: 0.3rem 0.55rem;
+    text-align: center;
+    font-weight: 600;
+    color: var(--text);
+    min-width: 2.8rem;
+  }
+  .h2h-cell.self { color: var(--text-3); }
+
+  .h2h-legend {
+    display: flex;
+    gap: 1.25rem;
+    margin-top: 0.7rem;
+    font-size: 0.7rem;
+    color: var(--text-3);
+    align-items: center;
+  }
+  .legend-item { display: flex; align-items: center; gap: 0.3rem; }
+  .legend-swatch {
+    width: 10px; height: 10px;
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+
   .stat-row {
     display: flex;
     align-items: center;
@@ -949,8 +1037,12 @@
   <!-- GAME -->
   <div id="game" style="display:none">
     <div class="card standings-card" id="standingsPanel" style="display:none">
-      <div class="card-title">Standings</div>
+      <div class="standings-card-header">
+        <div class="card-title">Standings</div>
+        <button class="expand-btn" id="h2hToggle" onclick="toggleH2H()">Head to head ▶</button>
+      </div>
       <div id="standingsContent"></div>
+      <div id="h2hSection" style="display:none"></div>
     </div>
     <div class="card">
       <div class="round-header">
@@ -1014,6 +1106,7 @@ function initStats(name) {
     lastRestRound: -999,
     teammates: {},
     opponents: {},
+    winsAgainst: {},
     wins: 0,
     losses: 0,
     draws: 0
@@ -1253,6 +1346,7 @@ function recalculateWinLoss() {
     state.stats[p].wins = 0
     state.stats[p].losses = 0
     state.stats[p].draws = 0
+    state.stats[p].winsAgainst = {}
   }
   for (const round of state.rounds) {
     if (!round.scores) continue
@@ -1260,17 +1354,81 @@ function recalculateWinLoss() {
       const sc = round.scores[i]
       if (!sc || sc[0] === null || sc[1] === null) return
       const [s1, s2] = sc
+      const inc = (obj, key) => { obj[key] = (obj[key] || 0) + 1 }
       if (s1 > s2) {
-        t1.forEach(p => state.stats[p] && state.stats[p].wins++)
+        t1.forEach(p => { if (state.stats[p]) { state.stats[p].wins++; t2.forEach(q => inc(state.stats[p].winsAgainst, q)) } })
         t2.forEach(p => state.stats[p] && state.stats[p].losses++)
       } else if (s2 > s1) {
-        t2.forEach(p => state.stats[p] && state.stats[p].wins++)
+        t2.forEach(p => { if (state.stats[p]) { state.stats[p].wins++; t1.forEach(q => inc(state.stats[p].winsAgainst, q)) } })
         t1.forEach(p => state.stats[p] && state.stats[p].losses++)
       } else {
         ;[...t1, ...t2].forEach(p => state.stats[p] && state.stats[p].draws++)
       }
     })
   }
+}
+
+let h2hOpen = false
+
+function toggleH2H() {
+  h2hOpen = !h2hOpen
+  const btn = document.getElementById('h2hToggle')
+  const sec = document.getElementById('h2hSection')
+  btn.classList.toggle('open', h2hOpen)
+  btn.textContent = h2hOpen ? 'Head to head ▼' : 'Head to head ▶'
+  sec.style.display = h2hOpen ? 'block' : 'none'
+  renderH2H()
+}
+
+function h2hColor(wins, losses) {
+  const total = wins + losses
+  if (total === 0) return 'transparent'
+  const ratio = wins / total
+  if (ratio > 0.5) {
+    const t = (ratio - 0.5) * 2
+    return `rgba(34,197,94,${(0.12 + t * 0.55).toFixed(2)})`
+  } else if (ratio < 0.5) {
+    const t = (0.5 - ratio) * 2
+    return `rgba(248,113,113,${(0.12 + t * 0.55).toFixed(2)})`
+  }
+  return 'rgba(148,163,184,0.15)'
+}
+
+function renderH2H() {
+  if (!h2hOpen || !state.scorecard) return
+  const players = state.players
+  const abbr = name => name.length > 9 ? name.slice(0, 8) + '…' : name
+
+  const colHeaders = players.map(q =>
+    `<th class="h2h-col-label" title="${esc(q)}">${esc(abbr(q))}</th>`
+  ).join('')
+
+  const bodyRows = players.map(p => {
+    const cells = players.map(q => {
+      if (p === q) return `<td class="h2h-cell self">—</td>`
+      const wins   = state.stats[p].winsAgainst[q] || 0
+      const losses = state.stats[q].winsAgainst[p] || 0
+      const bg = h2hColor(wins, losses)
+      const label = wins + losses === 0 ? '–' : `${wins}–${losses}`
+      return `<td class="h2h-cell" style="background:${bg}">${label}</td>`
+    }).join('')
+    return `<tr><td class="h2h-cell h2h-row-label">${esc(p)}</td>${cells}</tr>`
+  }).join('')
+
+  document.getElementById('h2hSection').innerHTML = `
+    <div class="h2h-wrap">
+      <div class="h2h-scroll">
+        <table class="h2h-table">
+          <thead><tr><th></th>${colHeaders}</tr></thead>
+          <tbody>${bodyRows}</tbody>
+        </table>
+      </div>
+      <div class="h2h-legend">
+        <span class="legend-item"><span class="legend-swatch" style="background:rgba(34,197,94,0.55)"></span>More wins</span>
+        <span class="legend-item"><span class="legend-swatch" style="background:rgba(248,113,113,0.55)"></span>More losses</span>
+        <span class="legend-item"><span class="legend-swatch" style="background:rgba(148,163,184,0.2)"></span>Even</span>
+      </div>
+    </div>`
 }
 
 function renderStandings() {
@@ -1298,6 +1456,7 @@ function renderStandings() {
         </div>
       </div>`
   }).join('')
+  renderH2H()
 }
 
 // --- Rendering ---
