@@ -578,6 +578,85 @@
     background: rgba(163,230,53,0.07);
   }
 
+  /* ── Reset confirmation modal ── */
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.45);
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    z-index: 200;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+  }
+  .modal-backdrop.open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 1.75rem;
+    max-width: 320px;
+    width: 100%;
+    box-shadow: 0 24px 64px rgba(0,0,0,0.22);
+    transform: translateY(10px) scale(0.96);
+    transition: transform 0.22s ease;
+  }
+  .modal-backdrop.open .modal { transform: translateY(0) scale(1); }
+
+  .modal-title {
+    font-size: 1.1rem;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    color: var(--text);
+    margin-bottom: 0.4rem;
+  }
+  .modal-body {
+    font-size: 0.875rem;
+    color: var(--text-2);
+    line-height: 1.5;
+    margin-bottom: 1.5rem;
+  }
+  .modal-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  /* Warm "No" — prominent, orange, impossible to miss */
+  .btn-warm {
+    background: #f97316;
+    color: #fff;
+    box-shadow: 0 2px 10px rgba(249,115,22,0.38);
+    font-size: 0.95rem;
+  }
+  .btn-warm:hover {
+    background: #ea580c;
+    box-shadow: 0 4px 16px rgba(249,115,22,0.48);
+    transform: translateY(-1px);
+  }
+  .btn-warm:active { transform: translateY(0); box-shadow: none; }
+
+  /* Quiet "Yes, reset" */
+  .btn-ghost {
+    background: transparent;
+    color: var(--text-3);
+    border: 1.5px solid var(--border);
+    font-size: 0.84rem;
+  }
+  .btn-ghost:hover { background: var(--bg); color: var(--text-2); }
+
+  [data-theme="dark"] .modal {
+    box-shadow: 0 24px 64px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.04);
+  }
+
   /* ── Mobile ── */
   @media (max-width: 520px) {
     header { padding: 0.85rem 1rem; }
@@ -651,7 +730,7 @@
           <div class="round-number" id="roundNumber">1</div>
         </div>
         <div class="round-actions">
-          <button class="btn btn-secondary" onclick="resetGame()">Reset</button>
+          <button class="btn btn-secondary" onclick="openResetModal()">Reset</button>
           <button class="btn btn-primary" onclick="nextRound()">Next Round</button>
         </div>
       </div>
@@ -667,6 +746,18 @@
     </div>
   </div>
 
+</div>
+
+<!-- Reset confirmation modal -->
+<div class="modal-backdrop" id="resetModal" onclick="handleBackdropClick(event)">
+  <div class="modal">
+    <div class="modal-title">Reset the session?</div>
+    <div class="modal-body">All rounds and stats will be cleared. This can't be undone.</div>
+    <div class="modal-actions">
+      <button class="btn btn-warm" onclick="closeResetModal()">No, keep playing</button>
+      <button class="btn btn-ghost" onclick="confirmReset()">Yes, reset</button>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -867,7 +958,20 @@ function startGame() {
   nextRound()
 }
 
-function resetGame() {
+function openResetModal() {
+  document.getElementById('resetModal').classList.add('open')
+}
+
+function closeResetModal() {
+  document.getElementById('resetModal').classList.remove('open')
+}
+
+function handleBackdropClick(e) {
+  if (e.target === e.currentTarget) closeResetModal()
+}
+
+function confirmReset() {
+  closeResetModal()
   state.currentRound = 0
   state.rounds = []
   state.usedMatchups = new Set()
