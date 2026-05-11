@@ -657,6 +657,61 @@
     box-shadow: 0 24px 64px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.04);
   }
 
+  /* ── Export modal ── */
+  .export-modal {
+    max-width: 620px;
+    padding: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    max-height: 82vh;
+  }
+  .export-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1.1rem 1.4rem 0.9rem;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .export-modal-header .modal-title { margin-bottom: 0; }
+  .modal-close-btn {
+    background: none; border: none; font-size: 1.5rem;
+    cursor: pointer; color: var(--text-3); line-height: 1; padding: 0;
+  }
+  .modal-close-btn:hover { color: var(--text); }
+  .export-textarea {
+    flex: 1;
+    padding: 1rem 1.4rem;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.74rem;
+    background: var(--bg);
+    color: var(--text);
+    border: none;
+    outline: none;
+    resize: none;
+    overflow-y: auto;
+    white-space: pre;
+    line-height: 1.7;
+    min-height: 260px;
+  }
+  .export-modal-actions {
+    flex-direction: row;
+    justify-content: flex-end;
+    padding: 0.75rem 1.4rem;
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .export-hist-btn {
+    position: absolute;
+    top: 0.85rem;
+    right: 1rem;
+    font-size: 0.73rem;
+    padding: 0.25rem 0.7rem;
+    height: auto;
+    line-height: 1.6;
+  }
+
   /* ── Bulk generate row ── */
   .bulk-row {
     display: flex;
@@ -1067,7 +1122,8 @@
       <div id="restingDisplay"></div>
     </div>
 
-    <div class="card">
+    <div class="card" style="position:relative">
+      <button class="btn btn-secondary export-hist-btn" onclick="exportSession()">Export</button>
       <details open>
         <summary>Round History</summary>
         <div class="history-list" id="historyList"></div>
@@ -1075,6 +1131,21 @@
     </div>
   </div>
 
+</div>
+
+<!-- Export modal -->
+<div class="modal-backdrop" id="exportModal" onclick="handleExportBackdropClick(event)">
+  <div class="modal export-modal">
+    <div class="export-modal-header">
+      <div class="modal-title">Session Export</div>
+      <button class="modal-close-btn" onclick="closeExport()">×</button>
+    </div>
+    <textarea id="exportText" class="export-textarea" readonly spellcheck="false"></textarea>
+    <div class="modal-actions export-modal-actions">
+      <button class="btn btn-primary" onclick="copyExport(event)">Copy to clipboard</button>
+      <button class="btn btn-ghost" onclick="closeExport()">Close</button>
+    </div>
+  </div>
 </div>
 
 <!-- Reset confirmation modal -->
@@ -1483,7 +1554,7 @@ function esc(s) {
 
 function renderSetup() {
   document.getElementById('playerChips').innerHTML = state.players.map(name =>
-    `<span class="chip">${esc(name)}<button class="chip-remove" onclick="removePlayer(${JSON.stringify(name)})" title="Remove">×</button></span>`
+    `<span class="chip">${esc(name)}<button class="chip-remove" data-name="${esc(name)}" onclick="removePlayer(this.dataset.name)" title="Remove">×</button></span>`
   ).join('')
 }
 
@@ -1604,6 +1675,80 @@ function setTheme(theme) {
 
 // Sync button icon with whatever theme was set by the head script
 setTheme(document.documentElement.getAttribute('data-theme') || 'light')
+
+// --- Export ---
+
+function exportSession() {
+  const date = new Date()
+  const dateStr = date.toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+  const timeStr = date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+  const div = '─'.repeat(48)
+  const lines = []
+
+  lines.push('DOUBLES SESSION')
+  lines.push(`${dateStr} at ${timeStr}`)
+  lines.push(`Players (${state.players.length}): ${state.players.join(', ')}`)
+  lines.push(`Format: ${state.n}v${state.n} · ${state.courts} court${state.courts !== 1 ? 's' : ''}${state.scorecard ? ' · Scorecard' : ''}`)
+  lines.push('')
+
+  for (const r of state.rounds) {
+    lines.push(div)
+    lines.push(`ROUND ${r.round}`)
+    const sc = r.scores || []
+    r.matchups.forEach(([t1, t2], i) => {
+      const [s1, s2] = sc[i] || [null, null]
+      const score = s1 !== null && s2 !== null ? `  [${s1} – ${s2}]` : ''
+      lines.push(`  ${t1.join(' & ')} vs ${t2.join(' & ')}${score}`)
+    })
+    if (r.resting.length) lines.push(`  Resting: ${r.resting.join(', ')}`)
+    lines.push('')
+  }
+
+  if (state.scorecard && state.players.length > 0) {
+    lines.push(div)
+    lines.push('STANDINGS')
+    lines.push('')
+    const sorted = [...state.players].sort((a, b) => {
+      const sa = state.stats[a], sb = state.stats[b]
+      if (sb.wins !== sa.wins) return sb.wins - sa.wins
+      if (sa.losses !== sb.losses) return sa.losses - sb.losses
+      return a.localeCompare(b)
+    })
+    const nw = Math.max(...sorted.map(p => p.length), 6)
+    const rn = (n, w) => String(n).padStart(w)
+    lines.push(`  ${'#'.padEnd(3)}  ${'Player'.padEnd(nw)}   W    L    D   GP    R       F       A`)
+    lines.push(`  ${'─'.repeat(nw + 42)}`)
+    sorted.forEach((p, idx) => {
+      const s = state.stats[p]
+      lines.push(`  ${String(idx + 1).padEnd(3)}  ${p.padEnd(nw)}  ${rn(s.wins,3)}  ${rn(s.losses,3)}  ${rn(s.draws,3)}  ${rn(s.roundsPlayed,3)}  ${rn(s.restCount,3)}  ${rn(s.pointsFor,6)}  ${rn(s.pointsAgainst,6)}`)
+    })
+    lines.push('')
+  }
+
+  document.getElementById('exportText').value = lines.join('\n')
+  document.getElementById('exportModal').classList.add('open')
+}
+
+function closeExport() {
+  document.getElementById('exportModal').classList.remove('open')
+}
+
+function handleExportBackdropClick(e) {
+  if (e.target === e.currentTarget) closeExport()
+}
+
+function copyExport(e) {
+  const text = document.getElementById('exportText').value
+  const btn = e.currentTarget
+  navigator.clipboard.writeText(text).catch(() => {
+    const ta = document.getElementById('exportText')
+    ta.select()
+    document.execCommand('copy')
+  })
+  const orig = btn.textContent
+  btn.textContent = 'Copied!'
+  setTimeout(() => { btn.textContent = orig }, 1500)
+}
 </script>
 </body>
 </html>
