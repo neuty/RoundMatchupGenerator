@@ -351,10 +351,11 @@ function selectResting(players, n, round) {
 }
 
 // --- Matchup Scoring (lower = better) ---
-// Penalise teammate and opponent repetition across rounds.
+// Penalises repeat matchups heavily, then teammate/opponent repetition.
 
 function scoreMatchup(t1, t2) {
   let s = 0
+  if (state.usedMatchups.has(matchupKey(t1, t2))) s += 1000
   for (const team of [t1, t2]) {
     for (let i = 0; i < team.length; i++) {
       for (let j = i + 1; j < team.length; j++) {
@@ -371,29 +372,47 @@ function scoreMatchup(t1, t2) {
 }
 
 // --- Round Generation ---
-// Greedy court-by-court. Prefers matchups not yet used; falls back when all exhausted.
+// Backtracking search over all courts simultaneously.
+// Pre-sorts candidates best-first so the first complete solution found is tight,
+// enabling aggressive pruning of branches that can't improve on it.
 
 function generateMatchups(activePlayers, n) {
   const courts = Math.floor(activePlayers.length / (2 * n))
-  const result = []
-  const usedThisRound = new Set()
+  if (courts === 0) return []
 
-  for (let c = 0; c < courts; c++) {
-    const available = activePlayers.filter(p => !usedThisRound.has(p))
-    const all = getValidMatchups(available, n)
-    if (all.length === 0) break
+  const pool = getValidMatchups(activePlayers, n)
+  if (pool.length === 0) return []
 
-    const fresh = all.filter(([t1, t2]) => !state.usedMatchups.has(matchupKey(t1, t2)))
-    const pool = fresh.length > 0 ? fresh : all  // exhaust fresh before repeating
+  pool.sort((a, b) => scoreMatchup(a[0], a[1]) - scoreMatchup(b[0], b[1]))
 
-    pool.sort((a, b) => scoreMatchup(a[0], a[1]) - scoreMatchup(b[0], b[1]))
+  // Cap for very large player counts to bound search time
+  if (pool.length > 500) pool.length = 500
 
-    const [t1, t2] = pool[0]
-    result.push([t1, t2])
-    for (const p of [...t1, ...t2]) usedThisRound.add(p)
+  let bestRound = null
+  let bestScore = Infinity
+
+  function backtrack(courtIdx, usedPlayers, current, score) {
+    if (courtIdx === courts) {
+      if (score < bestScore) {
+        bestScore = score
+        bestRound = current.map(([t1, t2]) => [[...t1], [...t2]])
+      }
+      return
+    }
+    for (const [t1, t2] of pool) {
+      if ([...t1, ...t2].some(p => usedPlayers.has(p))) continue
+      const s = scoreMatchup(t1, t2)
+      if (score + s >= bestScore) continue  // prune: can't beat current best
+      for (const p of [...t1, ...t2]) usedPlayers.add(p)
+      current.push([t1, t2])
+      backtrack(courtIdx + 1, usedPlayers, current, score + s)
+      current.pop()
+      for (const p of [...t1, ...t2]) usedPlayers.delete(p)
+    }
   }
 
-  return result
+  backtrack(0, new Set(), [], 0)
+  return bestRound ?? []
 }
 
 // --- State Updates ---
