@@ -2,7 +2,7 @@
 
 no cap this is the only matchup generator you'll ever need for doubles sports. single html file, zero dependencies, just open it in a browser and go. built for badminton / pickleball / padel / whatever you're running.
 
-**[▶ open the app](https://htmlpreview.github.io/?https://github.com/neuty/DoublesMatchupGenerator/blob/main/index.html)** — opens via htmlpreview (right-click → open in new tab)
+**[▶ open the app](https://htmlpreview.github.io/?https://github.com/neuty/RoundMatchupGenerator/blob/main/index.html)** — opens via htmlpreview (right-click → open in new tab)
 
 ---
 
