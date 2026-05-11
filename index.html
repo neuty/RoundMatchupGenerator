@@ -356,13 +356,6 @@ function selectResting(players, n, round) {
 function scoreMatchup(t1, t2) {
   let s = 0
   if (state.usedMatchups.has(matchupKey(t1, t2))) s += 1000
-  for (const team of [t1, t2]) {
-    for (let i = 0; i < team.length; i++) {
-      for (let j = i + 1; j < team.length; j++) {
-        s += (state.stats[team[i]].teammates[team[j]] || 0) * 10
-      }
-    }
-  }
   for (const p of t1) {
     for (const q of t2) {
       s += (state.stats[p].opponents[q] || 0) * 5
