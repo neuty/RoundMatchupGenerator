@@ -14,6 +14,24 @@ generating a round is three steps:
 
 ---
 
+## the seed
+
+the seed fires exactly once — at `startGame()`, before any rounds are generated. it does not touch the round generation algorithm itself.
+
+the pipeline:
+
+1. the player list is sorted **alphabetically** (so entry order doesn't matter)
+2. the seed string is hashed to a uint32 via FNV-1a (`hashSeed`)
+3. that uint32 seeds a `mulberry32` PRNG
+4. the sorted player list is shuffled with that PRNG (`seededShuffle`)
+5. the shuffled order is stored in `state.players` and never touched again
+
+from that point on, round generation is purely deterministic — it only looks at match history and rest counts. the seed's influence is indirect: `combinations` preserves the array order it receives, so the seed changes which teams appear first in the raw pool. after the pool is sorted by score, this only affects tie-breaking in round 1 when all scores are zero. by round 2, actual opponent/rest history dominates and the seed's effect is negligible.
+
+this is also why same names + same seed = same session every time, regardless of the order you typed the names in.
+
+---
+
 ## step 1: rest rotation
 
 if you have more players than `courts × 2 × N`, some people sit. `selectResting` decides who.
