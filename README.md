@@ -1,6 +1,6 @@
 # DoublesMatchupGenerator
 
-**[▶ open the app](https://htmlpreview.github.io/?https://github.com/neuty/RoundMatchupGenerator/blob/main/index.html)** — redirects to webpage (right-click → open in new tab)
+**[▶ Permanant Website](https://neuty.github.io/RoundMatchupGenerator/)** — hosted through GitHub Pages
 
 no cap this is the only matchup generator you'll ever need for doubles sports. single html file, zero dependencies, just open it in a browser and go. built for badminton / pickleball / padel / whatever you're running.
 
