@@ -1733,7 +1733,7 @@ function renderGame() {
         <div class="history-row history-row-sc">
           <div class="history-sc-header">
             <span class="history-pill">R${r.round}</span>
-            ${r.resting.length ? `<span class="history-rest">rest: ${r.resting.map(esc).join(', ')}</span>` : ''}
+            ${r.resting.length ? `<span class="history-rest">Resting: ${r.resting.map(esc).join(', ')}</span>` : ''}
           </div>
           ${matchupRows}
         </div>`
@@ -1743,7 +1743,7 @@ function renderGame() {
       <div class="history-row">
         <span class="history-pill">R${r.round}</span>
         ${r.matchups.map(([t1, t2]) => `${t1.join(' & ')} vs ${t2.join(' & ')}`).join(' · ')}
-        ${r.resting.length ? `<span class="history-rest">· rest: ${r.resting.map(esc).join(', ')}</span>` : ''}
+        ${r.resting.length ? `<span class="history-rest">· Resting: ${r.resting.map(esc).join(', ')}</span>` : ''}
       </div>`
   }).join('')
 }
