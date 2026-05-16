@@ -1205,6 +1205,8 @@ const state = {
   currentRound: 0,
   rounds: [],
   usedMatchups: new Set(),
+  remainingMatchups: [],
+  cycleCount: 0,
   stats: {}
 }
 
@@ -1313,78 +1315,32 @@ function getValidMatchups(players, n) {
   return result
 }
 
-// --- Rest Rotation ---
+// --- Pool-based Round Generation ---
 
-function selectResting(players, n, round) {
-  const courts = state.courts
-  const restCount = players.length - courts * 2 * n
-  if (restCount <= 0) return []
-
-  const restedLastRound = p => state.stats[p].lastRestRound === round - 1
-  const netRounds = p => state.stats[p].roundsPlayed - state.stats[p].restCount
-  const byNetDesc = (a, b) => netRounds(b) - netRounds(a)
-
-  const canRest = players.filter(p => !restedLastRound(p)).sort(byNetDesc)
-  let resting = canRest.slice(0, restCount)
-
-  if (resting.length < restCount) {
-    const forced = players.filter(restedLastRound).sort(byNetDesc)
-    resting = [...resting, ...forced.slice(0, restCount - resting.length)]
+// Reorder a shuffled matchup list so no player sits out consecutively longer than needed.
+// Uses the shuffled order as a tiebreaker so different seeds still give different sequences.
+function fairOrder(matchups, players) {
+  const remaining = [...matchups]
+  const ordered = []
+  const streak = Object.fromEntries(players.map(p => [p, 0]))
+  while (remaining.length > 0) {
+    let bestScore = -1, bestIdx = 0
+    for (let i = 0; i < remaining.length; i++) {
+      const score = [...remaining[i][0], ...remaining[i][1]].reduce((s, p) => s + streak[p], 0)
+      if (score > bestScore) { bestScore = score; bestIdx = i }
+    }
+    const [t1, t2] = remaining.splice(bestIdx, 1)[0]
+    ordered.push([t1, t2])
+    const active = new Set([...t1, ...t2])
+    for (const p of players) streak[p] = active.has(p) ? 0 : streak[p] + 1
   }
-
-  return resting
+  return ordered
 }
 
-// --- Matchup Scoring ---
-
-function scoreMatchup(t1, t2) {
-  let s = 0
-  if (state.usedMatchups.has(matchupKey(t1, t2))) s += 1000
-  for (const p of t1) {
-    for (const q of t2) {
-      s += (state.stats[p].opponents[q] || 0) * 5
-    }
-  }
-  return s
-}
-
-// --- Round Generation (backtracking) ---
-
-function generateMatchups(activePlayers, n) {
-  const courts = state.courts
-  if (courts === 0) return []
-
-  const pool = getValidMatchups(activePlayers, n)
-  if (pool.length === 0) return []
-
-  pool.sort((a, b) => scoreMatchup(a[0], a[1]) - scoreMatchup(b[0], b[1]))
-  if (pool.length > 500) pool.length = 500
-
-  let bestRound = null
-  let bestScore = Infinity
-
-  function backtrack(courtIdx, usedPlayers, current, score) {
-    if (courtIdx === courts) {
-      if (score < bestScore) {
-        bestScore = score
-        bestRound = current.map(([t1, t2]) => [[...t1], [...t2]])
-      }
-      return
-    }
-    for (const [t1, t2] of pool) {
-      if ([...t1, ...t2].some(p => usedPlayers.has(p))) continue
-      const s = scoreMatchup(t1, t2)
-      if (score + s >= bestScore) continue
-      for (const p of [...t1, ...t2]) usedPlayers.add(p)
-      current.push([t1, t2])
-      backtrack(courtIdx + 1, usedPlayers, current, score + s)
-      current.pop()
-      for (const p of [...t1, ...t2]) usedPlayers.delete(p)
-    }
-  }
-
-  backtrack(0, new Set(), [], 0)
-  return bestRound ?? []
+function refillPool() {
+  state.cycleCount++
+  const rng = mulberry32(hashSeed(state.seed) ^ state.cycleCount)
+  state.remainingMatchups = fairOrder(seededShuffle(getValidMatchups(state.players, state.n), rng), state.players)
 }
 
 // --- State Updates ---
@@ -1460,6 +1416,8 @@ function startGame() {
   document.getElementById('seedInput').value = rawSeed
   const rng = mulberry32(hashSeed(rawSeed))
   state.players = seededShuffle([...state.players].sort(), rng)
+  state.cycleCount = 0
+  state.remainingMatchups = fairOrder(seededShuffle(getValidMatchups(state.players, state.n), rng), state.players)
   document.getElementById('activeSeedBadge').innerHTML = `seed: <strong>${esc(rawSeed)}</strong>`
 
   document.getElementById('standingsPanel').style.display = state.scorecard ? 'block' : 'none'
@@ -1485,6 +1443,8 @@ function confirmReset() {
   state.currentRound = 0
   state.rounds = []
   state.usedMatchups = new Set()
+  state.remainingMatchups = []
+  state.cycleCount = 0
   for (const p of state.players) initStats(p)
   document.getElementById('standingsPanel').style.display = 'none'
   document.getElementById('game').style.display = 'none'
@@ -1498,9 +1458,31 @@ function generateBulk() {
 
 function nextRound() {
   const round = ++state.currentRound
-  const resting = selectResting(state.players, state.n, round)
-  const active = state.players.filter(p => !resting.includes(p))
-  const matchups = generateMatchups(active, state.n)
+  if (state.remainingMatchups.length === 0) refillPool()
+
+  const activePlayers = new Set()
+  const matchups = []
+
+  for (let i = 0; i < state.remainingMatchups.length && matchups.length < state.courts;) {
+    const [t1, t2] = state.remainingMatchups[i]
+    if ([...t1, ...t2].some(p => activePlayers.has(p))) { i++; continue }
+    matchups.push([t1, t2])
+    for (const p of [...t1, ...t2]) activePlayers.add(p)
+    state.remainingMatchups.splice(i, 1)
+  }
+
+  if (matchups.length < state.courts) {
+    refillPool()
+    for (let i = 0; i < state.remainingMatchups.length && matchups.length < state.courts;) {
+      const [t1, t2] = state.remainingMatchups[i]
+      if ([...t1, ...t2].some(p => activePlayers.has(p))) { i++; continue }
+      matchups.push([t1, t2])
+      for (const p of [...t1, ...t2]) activePlayers.add(p)
+      state.remainingMatchups.splice(i, 1)
+    }
+  }
+
+  const resting = state.players.filter(p => !activePlayers.has(p))
   applyRound(matchups, resting, round)
   state.rounds.push({ round, matchups, resting })
   renderGame()
