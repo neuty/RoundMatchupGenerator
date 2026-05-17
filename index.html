@@ -1797,21 +1797,6 @@ function exportRounds() {
   for (const r of state.rounds) {
     lines.push(div)
     lines.push(`ROUND ${r.round}`)
-    r.matchups.forEach(([t1, t2]) => {
-      lines.push(`  ${t1.join(' & ')} vs ${t2.join(' & ')}`)
-    })
-    if (r.resting.length) lines.push(`  Resting: ${r.resting.join(', ')}`)
-    lines.push('')
-  }
-  openExportModal(lines, 'Export — Rounds')
-}
-
-function exportScorecard() {
-  const div = '─'.repeat(48)
-  const lines = exportHeader('SCORECARD')
-  for (const r of state.rounds) {
-    lines.push(div)
-    lines.push(`ROUND ${r.round}`)
     const sc = r.scores || []
     r.matchups.forEach(([t1, t2], i) => {
       const [s1, s2] = sc[i] || [null, null]
@@ -1821,6 +1806,12 @@ function exportScorecard() {
     if (r.resting.length) lines.push(`  Resting: ${r.resting.join(', ')}`)
     lines.push('')
   }
+  openExportModal(lines, 'Export — Rounds')
+}
+
+function exportScorecard() {
+  const lines = exportHeader('SCORECARD')
+  const div = '─'.repeat(48)
   lines.push(div)
   lines.push('STANDINGS')
   lines.push('')
