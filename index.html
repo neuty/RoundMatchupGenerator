@@ -1317,7 +1317,7 @@ function getValidMatchups(players, n) {
 
 // --- Pool-based Round Generation ---
 
-// Reorder a shuffled matchup list so no player sits out consecutively longer than needed.
+// Reorder a shuffled matchup list so cumulative rest counts stay balanced across players.
 // Uses the shuffled order as a tiebreaker so different seeds still give different sequences.
 function fairOrder(matchups, players) {
   const remaining = [...matchups]
@@ -1445,6 +1445,9 @@ function confirmReset() {
   state.usedMatchups = new Set()
   state.remainingMatchups = []
   state.cycleCount = 0
+  h2hOpen = false
+  document.getElementById('h2hToggle').textContent = 'Head to head ▶'
+  document.getElementById('h2hSection').style.display = 'none'
   for (const p of state.players) initStats(p)
   document.getElementById('standingsPanel').style.display = 'none'
   document.getElementById('game').style.display = 'none'
@@ -1453,10 +1456,10 @@ function confirmReset() {
 
 function generateBulk() {
   const count = Math.max(1, parseInt(document.getElementById('bulkCount').value) || 1)
-  for (let i = 0; i < count; i++) nextRound()
+  for (let i = 0; i < count; i++) nextRound(i === count - 1)
 }
 
-function nextRound() {
+function nextRound(render = true) {
   const round = ++state.currentRound
   if (state.remainingMatchups.length === 0) refillPool()
 
@@ -1485,7 +1488,7 @@ function nextRound() {
   const resting = state.players.filter(p => !activePlayers.has(p))
   applyRound(matchups, resting, round)
   state.rounds.push({ round, matchups, resting })
-  renderGame()
+  if (render) renderGame()
 }
 
 // --- Scorecard ---
@@ -1724,7 +1727,7 @@ function renderGame() {
     return `
       <div class="history-row">
         <span class="history-pill">R${r.round}</span>
-        ${r.matchups.map(([t1, t2]) => `${t1.join(' & ')} vs ${t2.join(' & ')}`).join(' · ')}
+        ${r.matchups.map(([t1, t2]) => `${t1.map(esc).join(' & ')} vs ${t2.map(esc).join(' & ')}`).join(' · ')}
         ${r.resting.length ? `<span class="history-rest">· Resting: ${r.resting.map(esc).join(', ')}</span>` : ''}
       </div>`
   }).join('')
