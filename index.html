@@ -1322,17 +1322,17 @@ function getValidMatchups(players, n) {
 function fairOrder(matchups, players) {
   const remaining = [...matchups]
   const ordered = []
-  const streak = Object.fromEntries(players.map(p => [p, 0]))
+  const totalRest = Object.fromEntries(players.map(p => [p, 0]))
   while (remaining.length > 0) {
     let bestScore = -1, bestIdx = 0
     for (let i = 0; i < remaining.length; i++) {
-      const score = [...remaining[i][0], ...remaining[i][1]].reduce((s, p) => s + streak[p], 0)
+      const score = [...remaining[i][0], ...remaining[i][1]].reduce((s, p) => s + totalRest[p], 0)
       if (score > bestScore) { bestScore = score; bestIdx = i }
     }
     const [t1, t2] = remaining.splice(bestIdx, 1)[0]
     ordered.push([t1, t2])
     const active = new Set([...t1, ...t2])
-    for (const p of players) streak[p] = active.has(p) ? 0 : streak[p] + 1
+    for (const p of players) { if (!active.has(p)) totalRest[p]++ }
   }
   return ordered
 }
