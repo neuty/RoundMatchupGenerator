@@ -729,10 +729,14 @@
     border-top: 1px solid var(--border);
     flex-shrink: 0;
   }
-  .export-hist-btn {
+  .export-btn-group {
     position: absolute;
     top: 0.85rem;
     right: 1rem;
+    display: flex;
+    gap: 0.4rem;
+  }
+  .export-hist-btn {
     font-size: 0.73rem;
     padding: 0.25rem 0.7rem;
     height: auto;
@@ -1158,7 +1162,10 @@
     </div>
 
     <div class="card" style="position:relative">
-      <button class="btn btn-secondary export-hist-btn" onclick="exportSession()">Export</button>
+      <div class="export-btn-group">
+        <button class="btn btn-secondary export-hist-btn" onclick="exportRounds()">Rounds</button>
+        <button class="btn btn-secondary export-hist-btn" id="exportScorecardBtn" onclick="exportScorecard()" style="display:none">Scorecard</button>
+      </div>
       <details open>
         <summary>Round History</summary>
         <div class="history-list" id="historyList"></div>
@@ -1172,7 +1179,7 @@
 <div class="modal-backdrop" id="exportModal" onclick="handleExportBackdropClick(event)">
   <div class="modal export-modal">
     <div class="export-modal-header">
-      <div class="modal-title">Session Export</div>
+      <div class="modal-title" id="exportModalTitle">Session Export</div>
       <button class="modal-close-btn" onclick="closeExport()">×</button>
     </div>
     <textarea id="exportText" class="export-textarea" readonly spellcheck="false"></textarea>
@@ -1421,6 +1428,7 @@ function startGame() {
   document.getElementById('activeSeedBadge').innerHTML = `seed: <strong>${esc(rawSeed)}</strong>`
 
   document.getElementById('standingsPanel').style.display = state.scorecard ? 'block' : 'none'
+  document.getElementById('exportScorecardBtn').style.display = state.scorecard ? '' : 'none'
   document.getElementById('setup').style.display = 'none'
   document.getElementById('game').style.display = 'block'
   nextRound()
@@ -1764,19 +1772,43 @@ setTheme(document.documentElement.getAttribute('data-theme') || 'light')
 
 // --- Export ---
 
-function exportSession() {
+function exportHeader(label) {
   const date = new Date()
   const dateStr = date.toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
   const timeStr = date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+  return [
+    `DOUBLES SESSION — ${label}`,
+    `${dateStr} at ${timeStr}`,
+    `Players (${state.players.length}): ${state.players.join(', ')}`,
+    `Format: ${state.n}v${state.n} · ${state.courts} court${state.courts !== 1 ? 's' : ''} · Seed: ${state.seed}`,
+    ''
+  ]
+}
+
+function openExportModal(lines, title) {
+  document.getElementById('exportModalTitle').textContent = title
+  document.getElementById('exportText').value = lines.join('\n')
+  document.getElementById('exportModal').classList.add('open')
+}
+
+function exportRounds() {
   const div = '─'.repeat(48)
-  const lines = []
+  const lines = exportHeader('ROUNDS')
+  for (const r of state.rounds) {
+    lines.push(div)
+    lines.push(`ROUND ${r.round}`)
+    r.matchups.forEach(([t1, t2]) => {
+      lines.push(`  ${t1.join(' & ')} vs ${t2.join(' & ')}`)
+    })
+    if (r.resting.length) lines.push(`  Resting: ${r.resting.join(', ')}`)
+    lines.push('')
+  }
+  openExportModal(lines, 'Export — Rounds')
+}
 
-  lines.push('DOUBLES SESSION')
-  lines.push(`${dateStr} at ${timeStr}`)
-  lines.push(`Players (${state.players.length}): ${state.players.join(', ')}`)
-  lines.push(`Format: ${state.n}v${state.n} · ${state.courts} court${state.courts !== 1 ? 's' : ''}${state.scorecard ? ' · Scorecard' : ''} · Seed: ${state.seed}`)
-  lines.push('')
-
+function exportScorecard() {
+  const div = '─'.repeat(48)
+  const lines = exportHeader('SCORECARD')
   for (const r of state.rounds) {
     lines.push(div)
     lines.push(`ROUND ${r.round}`)
@@ -1789,30 +1821,25 @@ function exportSession() {
     if (r.resting.length) lines.push(`  Resting: ${r.resting.join(', ')}`)
     lines.push('')
   }
-
-  if (state.scorecard && state.players.length > 0) {
-    lines.push(div)
-    lines.push('STANDINGS')
-    lines.push('')
-    const sorted = [...state.players].sort((a, b) => {
-      const sa = state.stats[a], sb = state.stats[b]
-      if (sb.wins !== sa.wins) return sb.wins - sa.wins
-      if (sa.losses !== sb.losses) return sa.losses - sb.losses
-      return a.localeCompare(b)
-    })
-    const nw = Math.max(...sorted.map(p => p.length), 6)
-    const rn = (n, w) => String(n).padStart(w)
-    lines.push(`  ${'#'.padEnd(3)}  ${'Player'.padEnd(nw)}   W    L    D   GP    R       F       A`)
-    lines.push(`  ${'─'.repeat(nw + 42)}`)
-    sorted.forEach((p, idx) => {
-      const s = state.stats[p]
-      lines.push(`  ${String(idx + 1).padEnd(3)}  ${p.padEnd(nw)}  ${rn(s.wins,3)}  ${rn(s.losses,3)}  ${rn(s.draws,3)}  ${rn(s.roundsPlayed,3)}  ${rn(s.restCount,3)}  ${rn(s.pointsFor,6)}  ${rn(s.pointsAgainst,6)}`)
-    })
-    lines.push('')
-  }
-
-  document.getElementById('exportText').value = lines.join('\n')
-  document.getElementById('exportModal').classList.add('open')
+  lines.push(div)
+  lines.push('STANDINGS')
+  lines.push('')
+  const sorted = [...state.players].sort((a, b) => {
+    const sa = state.stats[a], sb = state.stats[b]
+    if (sb.wins !== sa.wins) return sb.wins - sa.wins
+    if (sa.losses !== sb.losses) return sa.losses - sb.losses
+    return a.localeCompare(b)
+  })
+  const nw = Math.max(...sorted.map(p => p.length), 6)
+  const rn = (n, w) => String(n).padStart(w)
+  lines.push(`  ${'#'.padEnd(3)}  ${'Player'.padEnd(nw)}   W    L    D   GP    R       F       A`)
+  lines.push(`  ${'─'.repeat(nw + 42)}`)
+  sorted.forEach((p, idx) => {
+    const s = state.stats[p]
+    lines.push(`  ${String(idx + 1).padEnd(3)}  ${p.padEnd(nw)}  ${rn(s.wins,3)}  ${rn(s.losses,3)}  ${rn(s.draws,3)}  ${rn(s.roundsPlayed,3)}  ${rn(s.restCount,3)}  ${rn(s.pointsFor,6)}  ${rn(s.pointsAgainst,6)}`)
+  })
+  lines.push('')
+  openExportModal(lines, 'Export — Scorecard')
 }
 
 function closeExport() {
