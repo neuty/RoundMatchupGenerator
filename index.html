@@ -1548,10 +1548,11 @@ function renderH2H() {
   const n = players.length
   const abbr = name => name.length > 9 ? name.slice(0, 8) + '…' : name
 
-  // Collect win counts from upper-triangle cells that have data for relative scaling
+  // Collect all non-diagonal win counts for relative gradient scaling
   const allWins = []
-  for (let i = 0; i < n - 1; i++) {
-    for (let j = i + 1; j < n; j++) {
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      if (i === j) continue
       const w = state.stats[players[i]].winsAgainst[players[j]] || 0
       const l = state.stats[players[j]].winsAgainst[players[i]] || 0
       if (w + l > 0) allWins.push(w)
@@ -1571,10 +1572,9 @@ function renderH2H() {
     `<th class="h2h-col-label" title="${esc(q)}">${esc(abbr(q))}</th>`
   ).join('')
 
-  // Upper triangle only — last player has no row to show
-  const bodyRows = players.slice(0, -1).map((p, i) => {
+  const bodyRows = players.map((p, i) => {
     const cells = players.map((q, j) => {
-      if (j <= i) return `<td class="h2h-cell h2h-blank"></td>`
+      if (j === i) return `<td class="h2h-cell self">–</td>`
       const wins   = state.stats[p].winsAgainst[q] || 0
       const losses = state.stats[q].winsAgainst[p] || 0
       const hasData = wins + losses > 0
