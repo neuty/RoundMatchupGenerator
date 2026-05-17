@@ -1,107 +1,94 @@
 # how round generation works
 
-this doc breaks down exactly how the app turns a player list into fair matchups every round. it's not magic — it's a backtracking search with a scoring function designed to avoid repeats and keep rest rotation fair.
+this doc breaks down exactly how the app turns a player list into fair matchups every round.
 
 ---
 
 ## the big picture
 
-generating a round is three steps:
+the core idea is a **pre-ordered matchup pool**. at game start, every unique NvN pairing across all players is computed, shuffled with the session seed, then reordered for fairness. each round simply pulls the next matchup(s) from the front of that pool. whoever isn't in the selected matchup sits out.
 
-1. **pick who sits out** — figure out which players rest this round
-2. **build the matchup pool** — enumerate every valid NvN pairing from the active players
-3. **find the best combination** — backtrack through the pool to fill all courts with the lowest-penalty set of matchups
+once the pool is exhausted, a new shuffled cycle begins. this guarantees:
+- every unique matchup is played exactly once before anything repeats
+- rest counts stay within 1 of each other across all players
+- max consecutive rests is 2
 
 ---
 
 ## the seed
 
-the seed fires exactly once — at `startGame()`, before any rounds are generated. it does not touch the round generation algorithm itself.
+the seed fires once at `startGame()`, producing a single `mulberry32` PRNG stream that is used for two things in sequence:
 
-the pipeline:
+1. the player list is sorted **alphabetically** then shuffled with the PRNG — this makes entry order irrelevant and makes sessions reproducible
+2. the full matchup pool is shuffled with the same PRNG stream (after the player shuffle has advanced it) — this is the source of variety between sessions
 
-1. the player list is sorted **alphabetically** (so entry order doesn't matter)
-2. the seed string is hashed to a uint32 via FNV-1a (`hashSeed`)
-3. that uint32 seeds a `mulberry32` PRNG
-4. the sorted player list is shuffled with that PRNG (`seededShuffle`)
-5. the shuffled order is stored in `state.players` and never touched again
+same names + same seed = same matchup sequence every time.
 
-from that point on, round generation is purely deterministic — it only looks at match history and rest counts. the seed's influence is indirect: `combinations` preserves the array order it receives, so the seed changes which teams appear first in the raw pool. after the pool is sorted by score, this only affects tie-breaking in round 1 when all scores are zero. by round 2, actual opponent/rest history dominates and the seed's effect is negligible.
-
-this is also why same names + same seed = same session every time, regardless of the order you typed the names in.
+when the pool is exhausted and a new cycle begins, `refillPool` derives a new PRNG from `hashSeed(seed) XOR cycleCount`, so each cycle has a different shuffle.
 
 ---
 
-## step 1: rest rotation
+## building the pool
 
-if you have more players than `courts × 2 × N`, some people sit. `selectResting` decides who.
+`getValidMatchups(players, n)` enumerates every team of size N, then pairs every team against every other team where no player appears on both sides. for 6 players in 2v2 this gives 45 matchups; for 7 players, 105.
 
-the rules:
-- **no consecutive rests** — anyone who sat last round is excluded from the candidate list first
-- **fairness by net rounds** — candidates are sorted by `roundsPlayed - restCount` descending. whoever has played the most relative to their rest count sits next
-- **fallback** — if there still aren't enough candidates after excluding last-round sitters (e.g. more than half the group needs to rest), the consecutive-rest rule is relaxed and the remaining spots are filled from the forced pool, again sorted by net rounds
+the resulting list is shuffled with the session seed, then passed to `fairOrder`.
 
 ---
 
-## step 2: the matchup pool
+## fairOrder — balancing rest counts
 
-`combinations(arr, k)` is the standard recursive pick-k combinator. `getValidMatchups` runs it to produce all teams of size N, then pairs every team against every other team where no player appears on both sides.
+a purely random shuffle would work for matchup exhaustion, but could produce runs where the same players sit out many times in a row. `fairOrder` reorders the shuffled pool to fix this.
 
-that raw list is the pool. before the search starts, it gets sorted cheapest-first using the scoring function (below), then **capped at 500 entries**. the cap keeps backtracking fast on large player counts where the combinatorial space would otherwise explode.
-
----
-
-## step 3: backtracking search
-
-`generateMatchups` runs a depth-first backtrack over the sorted pool to fill one slot per court.
+it's a greedy algorithm that simulates the extraction one matchup at a time:
 
 ```
-backtrack(courtIdx, usedPlayers, current, score)
-  if courtIdx == courts → save if score < bestScore
-  for each matchup in pool:
-    skip if any player already used this round
-    skip if score + matchupCost >= bestScore  ← pruning
-    recurse with courtIdx + 1
+totalRest[p] = 0 for all players
+while pool not empty:
+    pick the matchup whose 4 players have the highest combined totalRest
+    append it to the ordered list
+    for every player NOT in that matchup: totalRest[p]++
 ```
 
-the pruning line is the key optimisation: because the pool is pre-sorted cheapest-first and the running score is accumulated, any branch that's already as expensive as the best complete solution found so far gets cut immediately. in practice this makes the search very fast even with several courts.
+by always choosing the matchup that most benefits the players who have accumulated the most rest debt, the ordering naturally distributes rests evenly. the seed shuffle acts as the tiebreaker when scores are equal, so different seeds still produce different sequences.
 
-the result is the single combination of matchups with the **lowest total penalty score** across all courts.
+**result:** over any complete cycle, rest counts are perfectly balanced. over partial cycles (short sessions), the delta across players is at most 1.
 
 ---
 
-## the scoring function
+## picking matchups each round
 
-`scoreMatchup(t1, t2)` returns a penalty for a proposed matchup:
+`nextRound` pulls from the front of `state.remainingMatchups`:
 
-| condition | penalty |
-|---|---|
-| this exact matchup has already been played | +1000 |
-| each opponent pair (p vs q) that has faced each other before | +5 per prior meeting |
+```
+for i in 0..remaining.length, while matchups.length < courts:
+    skip if any player in remaining[i] is already active this round
+    take remaining[i], remove it from the pool
+```
 
-the +1000 hard penalty means already-used matchups only get picked if there is genuinely no other option — i.e. every possible pairing has already been played. once the full rotation is exhausted, the used-matchup set resets and the cycle starts over.
+for a single court this always takes index 0 (the next in fair order). for multiple courts it scans forward for non-overlapping matchups, which may skip a few entries in the pool. the players NOT in any selected matchup rest this round — no separate rest-selection step.
 
-the +5 per repeated opponent nudges the search toward fresh pairings even when full novelty isn't possible. teammates don't factor directly into the penalty (a team can repeat), but they'll naturally vary as a side effect of avoiding repeated opponent pairs.
+if the pool empties mid-fill (can happen with multiple courts near end of cycle), `refillPool` is called and filling continues from the new pool.
 
 ---
 
 ## matchup identity
 
-`matchupKey(t1, t2)` produces a canonical, order-independent string for any matchup:
+`matchupKey(t1, t2)` produces a canonical, order-independent string:
 
 - players within each team are sorted and joined with `\x00`
 - the two team strings are sorted so team order doesn't matter
 - teams are joined with `||`
 
-this means `[Alice, Bob] vs [Carol, Dan]` and `[Carol, Dan] vs [Bob, Alice]` produce the same key. the key is what gets stored in `usedMatchups` and checked by the scorer.
+`[Alice, Bob] vs [Carol, Dan]` and `[Carol, Dan] vs [Bob, Alice]` produce the same key. the key is stored in `usedMatchups` for tracking purposes.
 
 ---
 
 ## after a round is accepted
 
-`applyRound` updates the shared state so the next round's search has accurate history:
+`applyRound` updates shared state:
 
-- resting players get `restCount++` and `lastRestRound` stamped
-- every active player gets `roundsPlayed++`
-- the matchup key is added to `usedMatchups`
-- teammate and opponent counters are incremented for use by the scorer next round
+- resting players: `restCount++`, `lastRestRound` stamped
+- active players: `roundsPlayed++`
+- matchup key added to `usedMatchups`
+- teammate and opponent counters incremented (used by scorecard standings)

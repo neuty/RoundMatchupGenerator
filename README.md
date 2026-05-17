@@ -11,9 +11,8 @@ no cap this is the only matchup generator you'll ever need for doubles sports. s
 
 Drop in your players, hit start, and it figures out the fairest possible pairings every round. the algorithm is lowkey pretty genius:
 
-- **no repeat matchups** — same two teams won't play each other again until every possible combo has been used up
-- **rest fairness** — if someone has to sit out, it rotates evenly. no one sits two rounds in a row unless absolutely necessary
-- **teammate logic** — same teammates are fine, but they have to face a fresh opposing team first before repeating
+- **exhaustive matchup rotation** — every unique pairing is played exactly once before anything repeats. with 6 players in 2v2 that's 45 unique matchups, 7 players gives 105, and so on
+- **rest fairness** — who sits out is driven by the matchup pool, ordered so rest counts stay within 1 of each other across all players. max consecutive rests is 2
 
 ---
 
@@ -31,7 +30,7 @@ Enable it before you start and suddenly this thing becomes a full session tracke
 - input scores for each court after each round
 - live **standings** with win/loss bars, games played, rests, and points for/against (F / A)
 - edit scores from past rounds and everything recalculates automatically
-- expandable **head-to-head matrix** — upper triangle only (no redundancy), colour-coded green to red on a relative gradient across all matchups. most wins = brightest green, fewest = brightest red
+- expandable **head-to-head matrix** — full N×N grid, colour-coded green to red on a relative gradient. most wins = brightest green, fewest = brightest red
 
 ### session seed
 Every session gets a short alphanumeric seed (or enter your own). The seed:
