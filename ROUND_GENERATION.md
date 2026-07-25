@@ -6,12 +6,12 @@ this doc breaks down exactly how the app turns a player list into fair matchups 
 
 ## the big picture
 
-the core idea is a **pre-ordered matchup pool**. at game start, every unique NvN pairing across all players is computed, shuffled with the session seed, then reordered for fairness. each round simply pulls the next matchup(s) from the front of that pool. whoever isn't in the selected matchup sits out.
+the core idea is a **matchup pool** plus **rest-urgency scoring**. at game start, every unique NvN pairing across all players is computed and shuffled with the session seed. each round scores the remaining pool against live rest statistics and takes the matchup(s) whose players are least due for a break. whoever isn't selected sits out.
 
 once the pool is exhausted, a new shuffled cycle begins. this guarantees:
 - every unique matchup is played exactly once before anything repeats
-- rest counts stay within 1 of each other across all players
-- max consecutive rests is 2
+- rest counts are perfectly balanced at every cycle boundary
+- rests are evenly *spaced*, not just evenly counted — a player who rests every K rounds keeps resting every K rounds
 
 ---
 
@@ -32,43 +32,44 @@ when the pool is exhausted and a new cycle begins, `refillPool` derives a new PR
 
 `getValidMatchups(players, n)` enumerates every team of size N, then pairs every team against every other team where no player appears on both sides. for 6 players in 2v2 this gives 45 matchups; for 7 players, 105.
 
-the resulting list is shuffled with the session seed, then passed to `fairOrder`.
+the resulting list is shuffled with the session seed and stored as-is. the pool is deliberately *not* pre-ordered — ordering it up front would have to guess at rest state, and that guess goes stale as soon as the session diverges from it (cycle boundaries especially). ordering is decided per round instead, from real statistics.
 
 ---
 
-## fairOrder — balancing rest counts
+## rest urgency — balancing and spacing rests
 
-a purely random shuffle would work for matchup exhaustion, but could produce runs where the same players sit out many times in a row. `fairOrder` reorders the shuffled pool to fix this.
-
-it's a greedy algorithm that simulates the extraction one matchup at a time:
+each round, every player gets an urgency score saying how overdue they are for a break:
 
 ```
-totalRest[p] = 0 for all players
-while pool not empty:
-    pick the matchup whose 4 players have the highest combined totalRest
-    append it to the ordered list
-    for every player NOT in that matchup: totalRest[p]++
+urgency[p] = (round - lastRestRound[p]) - restCount[p] * REST_WEIGHT
 ```
 
-by always choosing the matchup that most benefits the players who have accumulated the most rest debt, the ordering naturally distributes rests evenly. the seed shuffle acts as the tiebreaker when scores are equal, so different seeds still produce different sequences.
+two terms, in priority order:
 
-**result:** over any complete cycle, rest counts are perfectly balanced. over partial cycles (short sessions), the delta across players is at most 1.
+- `restCount * REST_WEIGHT` — the dominant term (`REST_WEIGHT` is 1e6, far larger than any plausible round gap). a player who has rested fewer times is always more urgent than one who has rested more, so total rest counts equalize first.
+- `round - lastRestRound` — the tiebreaker among players with equal rest counts. the longer since your last break, the more urgent you are. **this is what produces even spacing.**
+
+players who have never rested are treated as though they last rested at round 0, so urgency simply grows with the round number.
 
 ---
 
 ## picking matchups each round
 
-`nextRound` pulls from the front of `state.remainingMatchups`:
+`nextRound` scores the pool and takes the *least* urgent matchup — the one whose players are most ready to keep playing. that leaves the most urgent players to rest:
 
 ```
-for i in 0..remaining.length, while matchups.length < courts:
-    skip if any player in remaining[i] is already active this round
-    take remaining[i], remove it from the pool
+urgency = restUrgency(round)
+while matchups.length < courts:
+    pick the pool matchup with the lowest summed urgency
+    whose players are all still free this round
+    remove it from the pool, mark its players active
 ```
 
-for a single court this always takes index 0 (the next in fair order). for multiple courts it scans forward for non-overlapping matchups, which may skip a few entries in the pool. the players NOT in any selected matchup rest this round — no separate rest-selection step.
+ties fall back to pool order, which is seeded — so the same seed still produces the same schedule, and different seeds still produce different ones.
 
-if the pool empties mid-fill (can happen with multiple courts near end of cycle), `refillPool` is called and filling continues from the new pool.
+if no eligible matchup remains (pool empty, or everything left overlaps players already placed this round), `refillPool` starts a new cycle and the pick is retried. the players NOT in any selected matchup rest this round — no separate rest-selection step.
+
+**result:** rest counts are exactly balanced at every cycle boundary, and gaps between rests stay tight. for 5 players in 2v2 on one court, every player rests exactly every 5 rounds. mid-cycle the rest-count delta can reach 2 in some configurations — that is a consequence of the play-every-matchup-once rule constraining what is still available, and it resolves to 0 at the end of each cycle.
 
 ---
 

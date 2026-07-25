@@ -1324,30 +1324,39 @@ function getValidMatchups(players, n) {
 
 // --- Pool-based Round Generation ---
 
-// Reorder a shuffled matchup list so cumulative rest counts stay balanced across players.
-// Uses the shuffled order as a tiebreaker so different seeds still give different sequences.
-function fairOrder(matchups, players) {
-  const remaining = [...matchups]
-  const ordered = []
-  const totalRest = Object.fromEntries(players.map(p => [p, 0]))
-  while (remaining.length > 0) {
-    let bestScore = -1, bestIdx = 0
-    for (let i = 0; i < remaining.length; i++) {
-      const score = [...remaining[i][0], ...remaining[i][1]].reduce((s, p) => s + totalRest[p], 0)
-      if (score > bestScore) { bestScore = score; bestIdx = i }
-    }
-    const [t1, t2] = remaining.splice(bestIdx, 1)[0]
-    ordered.push([t1, t2])
-    const active = new Set([...t1, ...t2])
-    for (const p of players) { if (!active.has(p)) totalRest[p]++ }
+// Dominates the recency term so rest counts always balance before spacing is considered.
+const REST_WEIGHT = 1e6
+
+// How overdue each player is for a rest: fewer rests, or longer since the last one, ranks higher.
+function restUrgency(round) {
+  const urgency = {}
+  for (const p of state.players) {
+    const s = state.stats[p]
+    const last = s.lastRestRound < 0 ? 0 : s.lastRestRound
+    urgency[p] = (round - last) - s.restCount * REST_WEIGHT
   }
-  return ordered
+  return urgency
+}
+
+// Pick the pool matchup whose players are least due for a rest, so the most overdue are left out.
+// Ties fall back to pool order, which is seeded — same seed still gives the same schedule.
+function pickMatchup(active, urgency) {
+  let bestIdx = -1, bestScore = Infinity
+  for (let i = 0; i < state.remainingMatchups.length; i++) {
+    const [t1, t2] = state.remainingMatchups[i]
+    const players = [...t1, ...t2]
+    if (players.some(p => active.has(p))) continue
+    let score = 0
+    for (const p of players) score += urgency[p]
+    if (score < bestScore) { bestScore = score; bestIdx = i }
+  }
+  return bestIdx
 }
 
 function refillPool() {
   state.cycleCount++
   const rng = mulberry32(hashSeed(state.seed) ^ state.cycleCount)
-  state.remainingMatchups = fairOrder(seededShuffle(getValidMatchups(state.players, state.n), rng), state.players)
+  state.remainingMatchups = seededShuffle(getValidMatchups(state.players, state.n), rng)
 }
 
 // --- State Updates ---
@@ -1424,7 +1433,7 @@ function startGame() {
   const rng = mulberry32(hashSeed(rawSeed))
   state.players = seededShuffle([...state.players].sort(), rng)
   state.cycleCount = 0
-  state.remainingMatchups = fairOrder(seededShuffle(getValidMatchups(state.players, state.n), rng), state.players)
+  state.remainingMatchups = seededShuffle(getValidMatchups(state.players, state.n), rng)
   document.getElementById('activeSeedBadge').innerHTML = `seed: <strong>${esc(rawSeed)}</strong>`
 
   document.getElementById('standingsPanel').style.display = state.scorecard ? 'block' : 'none'
@@ -1469,28 +1478,20 @@ function generateBulk() {
 
 function nextRound(render = true) {
   const round = ++state.currentRound
-  if (state.remainingMatchups.length === 0) refillPool()
-
+  const urgency = restUrgency(round)
   const activePlayers = new Set()
   const matchups = []
 
-  for (let i = 0; i < state.remainingMatchups.length && matchups.length < state.courts;) {
-    const [t1, t2] = state.remainingMatchups[i]
-    if ([...t1, ...t2].some(p => activePlayers.has(p))) { i++; continue }
+  while (matchups.length < state.courts) {
+    let idx = pickMatchup(activePlayers, urgency)
+    if (idx === -1) {
+      refillPool()
+      idx = pickMatchup(activePlayers, urgency)
+      if (idx === -1) break
+    }
+    const [t1, t2] = state.remainingMatchups.splice(idx, 1)[0]
     matchups.push([t1, t2])
     for (const p of [...t1, ...t2]) activePlayers.add(p)
-    state.remainingMatchups.splice(i, 1)
-  }
-
-  if (matchups.length < state.courts) {
-    refillPool()
-    for (let i = 0; i < state.remainingMatchups.length && matchups.length < state.courts;) {
-      const [t1, t2] = state.remainingMatchups[i]
-      if ([...t1, ...t2].some(p => activePlayers.has(p))) { i++; continue }
-      matchups.push([t1, t2])
-      for (const p of [...t1, ...t2]) activePlayers.add(p)
-      state.remainingMatchups.splice(i, 1)
-    }
   }
 
   const resting = state.players.filter(p => !activePlayers.has(p))
