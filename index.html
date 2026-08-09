@@ -1583,7 +1583,7 @@ function toggleH2H() {
 
 function renderH2H() {
   if (!h2hOpen || !state.scorecard) return
-  const players = state.players
+  const players = standingsOrder()
   const n = players.length
   const abbr = name => name.length > 9 ? name.slice(0, 8) + '…' : name
 
@@ -1636,14 +1636,18 @@ function renderH2H() {
     </div>`
 }
 
-function renderStandings() {
-  if (!state.scorecard) return
-  const sorted = [...state.players].sort((a, b) => {
+function standingsOrder() {
+  return [...state.players].sort((a, b) => {
     const sa = state.stats[a], sb = state.stats[b]
     if (sb.wins !== sa.wins) return sb.wins - sa.wins
     if (sa.losses !== sb.losses) return sa.losses - sb.losses
     return a.localeCompare(b)
   })
+}
+
+function renderStandings() {
+  if (!state.scorecard) return
+  const sorted = standingsOrder()
   document.getElementById('standingsContent').innerHTML = sorted.map(p => {
     const s = state.stats[p]
     const gp = s.roundsPlayed
@@ -1837,18 +1841,50 @@ function exportRounds() {
   openExportModal(lines, 'Export — Rounds')
 }
 
+// Plain-text mirror of the H2H matrix. Diagonal is '·' and an unplayed pairing
+// is '–'; the grid has no colour to tell them apart the way the UI does.
+function h2hLines() {
+  const players = standingsOrder()
+  const cell = (i, j) => {
+    if (i === j) return '·'
+    const w = state.stats[players[i]].winsAgainst[players[j]] || 0
+    const l = state.stats[players[j]].winsAgainst[players[i]] || 0
+    return w + l ? `${w}–${l}` : '–'
+  }
+  const played = players.some((_, i) => players.some((_, j) => i !== j && cell(i, j) !== '–'))
+  if (!played) return []
+
+  const abbr = name => name.length > 9 ? name.slice(0, 8) + '…' : name
+  const heads = players.map(abbr)
+  const rowW = Math.max(...players.map(p => p.length))
+  const colW = players.map((_, j) =>
+    Math.max(heads[j].length, ...players.map((_, i) => cell(i, j).length)))
+  const row = (label, get) =>
+    '  ' + label.padEnd(rowW) + colW.map((w, j) => '  ' + get(j).padStart(w)).join('')
+
+  return [
+    'HEAD TO HEAD',
+    '',
+    "  Each row is that player's wins–losses against the player in the column.",
+    '',
+    row('', j => heads[j]),
+    ...players.map((p, i) => row(p, j => cell(i, j))),
+    ''
+  ]
+}
+
 function exportScorecard() {
   const lines = exportHeader('SCORECARD')
   const div = '─'.repeat(48)
+  const h2h = h2hLines()
+  if (h2h.length) {
+    lines.push(div)
+    lines.push(...h2h)
+  }
   lines.push(div)
   lines.push('STANDINGS')
   lines.push('')
-  const sorted = [...state.players].sort((a, b) => {
-    const sa = state.stats[a], sb = state.stats[b]
-    if (sb.wins !== sa.wins) return sb.wins - sa.wins
-    if (sa.losses !== sb.losses) return sa.losses - sb.losses
-    return a.localeCompare(b)
-  })
+  const sorted = standingsOrder()
   const nw = Math.max(...sorted.map(p => p.length), 6)
   const rn = (n, w) => String(n).padStart(w)
   lines.push(`  ${'#'.padEnd(3)}  ${'Player'.padEnd(nw)}   W    L    D   GP    R       F       A`)
