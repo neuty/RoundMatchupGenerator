@@ -124,6 +124,12 @@
     font-size:clamp(28px,4.4vw,42px); font-weight:680; letter-spacing:-.028em;
     line-height:1.1; margin:10px 0 0; text-wrap:balance;
   }
+  /* U+1D708 is outside the BMP; system sans faces often lack it, so name the
+     math faces most likely to carry it before falling back to serif. */
+  .wordmark {
+    font-family:'Cambria Math','STIX Two Math','Latin Modern Math','Noto Sans Math',
+                'Segoe UI Symbol','Apple Symbols',serif;
+  }
 
   .tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(150px,100%),1fr)); gap:12px; margin-top:26px; }
   .tile {
@@ -288,7 +294,7 @@
   <div class="wrap">
     <header class="page">
       <div class="eyebrow">Doubles &middot; 2v2 &middot; 1 court</div>
-      <h1>Badminton Analysis and Trends</h1>
+      <h1><span class="wordmark">&#x1D708;</span>BR</h1>
       <div class="tiles" id="tiles"></div>
     </header>
 
