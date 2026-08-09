@@ -3,3 +3,8 @@
 .claude/skills/
 memory/
 CLAUDE.md
+
+# Analysis dashboard: plaintext player data and intermediate build output.
+# The published page (analysis.html) is encrypted and IS tracked.
+analysis-src/payload.json
+analysis-src/session-analysis.html

@@ -1,0 +1,574 @@
+<title>Session Analysis — Doubles Scorecards</title>
+<style>
+  :root {
+    --bg:#f1f5f9; --surface:#ffffff; --surface-2:#f8fafc;
+    --border:#e2e8f0; --border-strong:#cbd5e1;
+    --text:#0f172a; --muted:#5b6b80; --faint:#94a3b8;
+    --accent:#4f46e5; --accent-soft:#eef2ff; --accent-line:#c7d2fe;
+    --pos:#0f766e; --pos-soft:#ccfbf1;
+    --neg:#be123c; --neg-soft:#ffe4e6;
+    --warn:#b45309; --warn-soft:#fffbeb; --warn-line:#fcd34d;
+    --shadow:0 1px 2px rgba(15,23,42,.06), 0 8px 24px -12px rgba(15,23,42,.18);
+    --radius:16px;
+    --mono:ui-monospace,'SFMono-Regular',Menlo,'Courier New',monospace;
+    --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:#080f0a; --surface:#0d1f12; --surface-2:#0a1a0e;
+      --border:#1a3823; --border-strong:#2c5c3b;
+      --text:#ecfdf5; --muted:#87a591; --faint:#5f7f6a;
+      --accent:#a3e635; --accent-soft:#152b16; --accent-line:#2f5c1c;
+      --pos:#22d3ee; --pos-soft:#0a2b33;
+      --neg:#fb7185; --neg-soft:#3a1220;
+      --warn:#fbbf24; --warn-soft:#231a04; --warn-line:#5c3200;
+      --shadow:0 1px 2px rgba(0,0,0,.5), 0 8px 28px -14px rgba(0,0,0,.8);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg:#080f0a; --surface:#0d1f12; --surface-2:#0a1a0e;
+    --border:#1a3823; --border-strong:#2c5c3b;
+    --text:#ecfdf5; --muted:#87a591; --faint:#5f7f6a;
+    --accent:#a3e635; --accent-soft:#152b16; --accent-line:#2f5c1c;
+    --pos:#22d3ee; --pos-soft:#0a2b33;
+    --neg:#fb7185; --neg-soft:#3a1220;
+    --warn:#fbbf24; --warn-soft:#231a04; --warn-line:#5c3200;
+    --shadow:0 1px 2px rgba(0,0,0,.5), 0 8px 28px -14px rgba(0,0,0,.8);
+  }
+  :root[data-theme="light"] {
+    --bg:#f1f5f9; --surface:#ffffff; --surface-2:#f8fafc;
+    --border:#e2e8f0; --border-strong:#cbd5e1;
+    --text:#0f172a; --muted:#5b6b80; --faint:#94a3b8;
+    --accent:#4f46e5; --accent-soft:#eef2ff; --accent-line:#c7d2fe;
+    --pos:#0f766e; --pos-soft:#ccfbf1;
+    --neg:#be123c; --neg-soft:#ffe4e6;
+    --warn:#b45309; --warn-soft:#fffbeb; --warn-line:#fcd34d;
+    --shadow:0 1px 2px rgba(15,23,42,.06), 0 8px 24px -12px rgba(15,23,42,.18);
+  }
+
+  body {
+    background:var(--bg); color:var(--text);
+    font-family:var(--sans);
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+  }
+  * { box-sizing:border-box; }
+  :focus-visible { outline:2px solid var(--accent); outline-offset:2px; border-radius:6px; }
+
+  .eyebrow {
+    font-family:var(--mono); font-size:11px; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--muted);
+  }
+
+  /* ---------- gate ---------- */
+  #gate {
+    min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px;
+  }
+  .gate-card {
+    width:100%; max-width:420px; background:var(--surface);
+    border:1px solid var(--border); border-radius:var(--radius);
+    box-shadow:var(--shadow); padding:32px 28px 28px;
+  }
+  .gate-mark {
+    width:38px; height:38px; border-radius:10px; background:var(--accent);
+    display:flex; align-items:center; justify-content:center; margin-bottom:20px;
+  }
+  .gate-card h1 { font-size:20px; font-weight:650; letter-spacing:-.015em; margin:10px 0 6px; }
+  .gate-card p { color:var(--muted); font-size:14px; margin:0 0 22px; }
+  .gate-form { display:flex; flex-direction:column; gap:10px; }
+  .gate-form input {
+    width:100%; padding:12px 14px; font-family:var(--mono); font-size:14px;
+    letter-spacing:.08em; background:var(--surface-2); color:var(--text);
+    border:1px solid var(--border-strong); border-radius:10px;
+  }
+  .gate-form input::placeholder { color:var(--faint); letter-spacing:.14em; }
+  .gate-form button {
+    padding:12px 14px; font-family:var(--sans); font-size:14px; font-weight:600;
+    background:var(--accent); color:var(--bg); border:0; border-radius:10px; cursor:pointer;
+  }
+  :root:not([data-theme="dark"]) .gate-form button { color:#fff; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .gate-form button { color:#08150b; }
+  }
+  :root[data-theme="dark"] .gate-form button { color:#08150b; }
+  .gate-err {
+    font-family:var(--mono); font-size:12px; color:var(--neg);
+    min-height:18px; letter-spacing:.02em;
+  }
+  .shake { animation:shake .3s ease; }
+  @keyframes shake {
+    0%,100%{transform:translateX(0)} 25%{transform:translateX(-6px)} 75%{transform:translateX(6px)}
+  }
+
+  /* ---------- shell ---------- */
+  #app { display:none; }
+  #app.on { display:block; animation:rise .5s ease both; }
+  @keyframes rise { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:none} }
+  .wrap { max-width:1060px; margin:0 auto; padding:40px 20px 72px; }
+
+  header.page { border-bottom:1px solid var(--border); padding-bottom:26px; margin-bottom:30px; }
+  header.page h1 {
+    font-size:clamp(28px,4.4vw,42px); font-weight:680; letter-spacing:-.028em;
+    line-height:1.1; margin:10px 0 0; text-wrap:balance;
+  }
+  /* U+1D708 is outside the BMP; system sans faces often lack it, so name the
+     math faces most likely to carry it before falling back to serif. */
+  .wordmark {
+    font-family:'Cambria Math','STIX Two Math','Latin Modern Math','Noto Sans Math',
+                'Segoe UI Symbol','Apple Symbols',serif;
+  }
+
+  .tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(150px,100%),1fr)); gap:12px; margin-top:26px; }
+  .tile {
+    background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:14px 16px;
+  }
+  .tile .k { font-family:var(--mono); font-size:10.5px; letter-spacing:.13em; text-transform:uppercase; color:var(--muted); }
+  .tile .v {
+    font-family:var(--mono); font-size:26px; font-weight:600; letter-spacing:-.02em;
+    font-variant-numeric:tabular-nums; margin-top:4px;
+  }
+  .tile .s { font-size:12px; color:var(--faint); }
+
+  section { margin-top:44px; }
+  .sec-head { display:flex; align-items:baseline; gap:12px; margin-bottom:16px; flex-wrap:wrap; }
+  .sec-head h2 { font-size:19px; font-weight:640; letter-spacing:-.015em; margin:0; }
+  .sec-head .note { font-size:13px; color:var(--muted); }
+
+  /* ---------- findings ---------- */
+  .findings { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr)); gap:12px; }
+  .finding {
+    background:var(--surface); border:1px solid var(--border); border-radius:12px;
+    padding:16px 18px; display:flex; flex-direction:column; gap:8px;
+  }
+  .chip {
+    align-self:flex-start; font-family:var(--mono); font-size:10px; letter-spacing:.12em;
+    text-transform:uppercase; padding:3px 8px; border-radius:5px; border:1px solid;
+  }
+  .chip.good { color:var(--pos); background:var(--pos-soft); border-color:var(--pos); }
+  .chip.warn { color:var(--warn); background:var(--warn-soft); border-color:var(--warn-line); }
+  .chip.info { color:var(--accent); background:var(--accent-soft); border-color:var(--accent-line); }
+  .chip.neutral { color:var(--muted); background:var(--surface-2); border-color:var(--border-strong); }
+  .finding h3 { font-size:15.5px; font-weight:620; margin:0; letter-spacing:-.01em; text-wrap:balance; }
+  .finding p { margin:0; font-size:13.5px; color:var(--muted); line-height:1.6; }
+
+  /* ---------- table ---------- */
+  .tbl-wrap { overflow-x:auto; background:var(--surface); border:1px solid var(--border); border-radius:12px; }
+  table { border-collapse:collapse; width:100%; min-width:620px; }
+  th, td { text-align:right; padding:10px 12px; font-size:13.5px; white-space:nowrap; }
+  th {
+    font-family:var(--mono); font-size:10px; letter-spacing:.12em; text-transform:uppercase;
+    color:var(--muted); font-weight:500; border-bottom:1px solid var(--border);
+  }
+  td { font-family:var(--mono); font-variant-numeric:tabular-nums; border-bottom:1px solid var(--border); }
+  tbody tr:last-child td { border-bottom:0; }
+  th.l, td.l { text-align:left; }
+  td.who { font-family:var(--sans); font-weight:580; }
+  .rk { color:var(--faint); font-size:11.5px; }
+  .pos { color:var(--pos); }
+  .neg { color:var(--neg); }
+  .part { color:var(--faint); font-size:11px; font-family:var(--mono); }
+
+  .bar { position:relative; width:112px; height:9px; background:var(--surface-2);
+         border-radius:2px; display:inline-block; vertical-align:middle; }
+  .bar::before { content:""; position:absolute; left:50%; top:-2px; bottom:-2px;
+                 width:1px; background:var(--border-strong); }
+  .bar i { position:absolute; top:0; height:9px; border-radius:2px; }
+  .spark { vertical-align:middle; }
+
+  /* ---------- sessions ---------- */
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(268px,100%),1fr)); gap:12px; }
+  .scard {
+    text-align:left; font-family:var(--sans); color:var(--text); cursor:pointer;
+    background:var(--surface); border:1px solid var(--border); border-radius:12px;
+    padding:18px; display:flex; flex-direction:column; gap:12px;
+    transition:border-color .18s ease, transform .18s ease, box-shadow .18s ease;
+  }
+  .scard:hover { border-color:var(--accent); transform:translateY(-2px); box-shadow:var(--shadow); }
+  .scard-top { display:flex; justify-content:space-between; align-items:baseline; gap:8px; }
+  .scard-date { font-size:16.5px; font-weight:640; letter-spacing:-.01em; }
+  .scard-seed { font-family:var(--mono); font-size:11px; color:var(--faint); letter-spacing:.06em; }
+  .scard-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+  .scard-grid div { display:flex; flex-direction:column; gap:1px; }
+  .scard-grid .k { font-family:var(--mono); font-size:9.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); }
+  .scard-grid .v { font-family:var(--mono); font-size:16px; font-variant-numeric:tabular-nums; }
+  .scard-win { font-size:13px; color:var(--muted); }
+  .scard-win b { color:var(--text); font-weight:600; }
+  .scard-cta {
+    font-family:var(--mono); font-size:10.5px; letter-spacing:.11em; text-transform:uppercase;
+    color:var(--accent); display:flex; align-items:center; gap:6px;
+  }
+  .scard-flag {
+    font-family:var(--mono); font-size:10px; letter-spacing:.08em; color:var(--warn);
+  }
+
+  /* ---------- modal ---------- */
+  .veil {
+    position:fixed; inset:0; background:rgba(8,15,10,.62); backdrop-filter:blur(3px);
+    display:none; align-items:flex-start; justify-content:center; padding:24px; overflow-y:auto; z-index:50;
+  }
+  .veil.on { display:flex; }
+  .sheet {
+    background:var(--surface); border:1px solid var(--border-strong); border-radius:var(--radius);
+    width:100%; max-width:760px; box-shadow:var(--shadow); margin:auto;
+    animation:pop .22s ease both;
+  }
+  @keyframes pop { from{opacity:0;transform:scale(.97) translateY(8px)} to{opacity:1;transform:none} }
+  .sheet-head {
+    display:flex; justify-content:space-between; align-items:flex-start; gap:16px;
+    padding:20px 22px 16px; border-bottom:1px solid var(--border);
+  }
+  .sheet-head h3 { margin:6px 0 4px; font-size:20px; font-weight:660; letter-spacing:-.02em; }
+  .sheet-head .sub { font-family:var(--mono); font-size:11.5px; color:var(--muted); letter-spacing:.04em; }
+  .x {
+    background:var(--surface-2); border:1px solid var(--border); color:var(--muted);
+    width:30px; height:30px; border-radius:8px; cursor:pointer; font-size:16px; line-height:1; flex:none;
+  }
+  .x:hover { color:var(--text); border-color:var(--border-strong); }
+  .sheet-body { padding:18px 22px 24px; display:flex; flex-direction:column; gap:20px; }
+  .facts { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(112px,100%),1fr)); gap:10px; }
+  .fact { background:var(--surface-2); border:1px solid var(--border); border-radius:10px; padding:10px 12px; }
+  .fact .k { font-family:var(--mono); font-size:9.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); }
+  .fact .v { font-family:var(--mono); font-size:17px; font-variant-numeric:tabular-nums; margin-top:2px; }
+  .sheet-note {
+    font-size:13px; color:var(--warn); background:var(--warn-soft);
+    border:1px solid var(--warn-line); border-radius:10px; padding:10px 12px; line-height:1.55;
+  }
+  footer.page {
+    margin-top:52px; padding-top:20px; border-top:1px solid var(--border);
+    font-size:12.5px; color:var(--faint); display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap;
+  }
+
+  @media (max-width: 560px) {
+    .wrap { padding:28px 14px 56px; }
+    header.page { padding-bottom:20px; margin-bottom:24px; }
+    section { margin-top:34px; }
+    .sec-head { gap:4px; }
+    .sec-head .note { font-size:12.5px; }
+    th, td { padding:9px 10px; font-size:13px; }
+    .veil { padding:10px; }
+    .sheet-head { padding:16px 16px 14px; }
+    .sheet-body { padding:14px 16px 20px; }
+    .x { width:44px; height:44px; font-size:20px; }
+    footer.page { flex-direction:column; gap:6px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration:.001ms !important; transition-duration:.001ms !important; }
+  }
+</style>
+
+<div id="gate">
+  <div class="gate-card" id="gateCard">
+    <div class="gate-mark">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+        <rect x="2" y="4" width="16" height="12" rx="1.5" stroke="currentColor" stroke-width="1.5" style="color:var(--bg)"/>
+        <line x1="10" y1="4" x2="10" y2="16" stroke="currentColor" stroke-width="1.5" style="color:var(--bg)"/>
+        <line x1="2" y1="10" x2="18" y2="10" stroke="currentColor" stroke-width="1" style="color:var(--bg)"/>
+      </svg>
+    </div>
+    <div class="eyebrow">Protected</div>
+    <h1>Session analysis</h1>
+    <p>Three doubles scorecards, 20 June to 8 August 2026. Say the magic word and it will all come out.</p>
+    <form class="gate-form" id="gateForm">
+      <input type="password" id="pw" placeholder="PASSPHRASE" autocomplete="off" spellcheck="false" aria-label="Passphrase">
+      <button type="submit">Unlock</button>
+      <div class="gate-err" id="err" role="status" aria-live="polite"></div>
+    </form>
+  </div>
+</div>
+
+<div id="app">
+  <div class="wrap">
+    <header class="page">
+      <div class="eyebrow">Doubles &middot; 2v2 &middot; 1 court</div>
+      <h1><span class="wordmark">&#x1D708;</span>BR</h1>
+      <div class="tiles" id="tiles"></div>
+    </header>
+
+    <section>
+      <div class="sec-head">
+        <h2>What the numbers reckon</h2>
+        <span class="note">Eight findings, biggest carry-on first</span>
+      </div>
+      <div class="findings" id="findings"></div>
+    </section>
+
+    <section>
+      <div class="sec-head">
+        <h2>Combined standings</h2>
+        <span class="note">All three sessions &middot; Trend is win rate by session &middot; Pt ratio is F &divide; (F + A)</span>
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th class="l">Player</th><th class="l">Trend</th>
+              <th>W</th><th>L</th><th>GP</th>
+              <th>Win%</th><th>F</th><th>A</th><th>Pt ratio</th><th>Diff/gm</th><th class="l">&nbsp;</th>
+            </tr>
+          </thead>
+          <tbody id="combined"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <div class="sec-head">
+        <h2>The sessions themselves</h2>
+        <span class="note">Give one a poke for the full match card</span>
+      </div>
+      <div class="cards" id="cards"></div>
+    </section>
+
+    <footer class="page">
+      <span>Cobbled together from Matchup Generator scorecard exports.</span>
+      <span>Games played counts wins and losses only. Placeholder draws chucked out entirely.</span>
+    </footer>
+  </div>
+</div>
+
+<div class="veil" id="veil" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+  <div class="sheet" id="sheet"></div>
+</div>
+
+<script>
+const CIPHER = "__CIPHER__";
+
+function fnv1a(s) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return h >>> 0;
+}
+function mulberry32(a) {
+  return function () {
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function decrypt(hex, pass) {
+  const rnd = mulberry32(fnv1a(pass));
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; i++) {
+    out[i] = parseInt(hex.substr(i * 2, 2), 16) ^ Math.floor(rnd() * 256);
+  }
+  const txt = new TextDecoder().decode(out);
+  if (txt.slice(0, 4) !== "RMG1") return null;
+  try { return JSON.parse(txt.slice(4)); } catch (e) { return null; }
+}
+
+const esc = s => String(s).replace(/[&<>"']/g, c =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+let DATA = null, SESSIONS = null;
+
+document.getElementById("gateForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const pw = document.getElementById("pw").value.trim();
+  const data = pw ? decrypt(CIPHER, pw) : null;
+  if (!data) {
+    const card = document.getElementById("gateCard");
+    document.getElementById("err").textContent = "Nah, that is not it. Have another crack.";
+    card.classList.remove("shake"); void card.offsetWidth; card.classList.add("shake");
+    document.getElementById("pw").select();
+    return;
+  }
+  DATA = data;
+  document.getElementById("gate").style.display = "none";
+  document.getElementById("app").classList.add("on");
+  render();
+});
+
+/* ---------- derivation ----------
+   Draws were entered as placeholders, so they are dropped entirely:
+   a game counts only if it produced a win and a loss. A drawn game
+   contributes zero to F − A, so differentials stay clean regardless. */
+function withDerived(p) {
+  const gp = p.w + p.l;
+  return Object.assign({}, p, {
+    gp,
+    winPct: gp ? p.w / gp : 0,
+    ptRatio: (p.f + p.a) ? p.f / (p.f + p.a) : 0,
+    diff: gp ? (p.f - p.a) / gp : 0
+  });
+}
+function sessionFacts(s) {
+  const ps = s.players.map(withDerived).sort((a, b) => b.winPct - a.winPct || b.diff - a.diff);
+  const diffs = ps.map(p => p.diff);
+  return {
+    players: ps,
+    games: ps.reduce((a, p) => a + p.gp, 0) / 4,
+    skipped: s.players.reduce((a, p) => a + p.d, 0) / 4,
+    spread: Math.max.apply(null, diffs) - Math.min.apply(null, diffs)
+  };
+}
+function combined() {
+  const m = {};
+  SESSIONS.forEach(s => s.players.forEach(p => {
+    const t = m[p.name] || (m[p.name] = { name: p.name, w: 0, l: 0, f: 0, a: 0, sessions: 0, trail: {} });
+    t.w += p.w; t.l += p.l; t.f += p.f; t.a += p.a; t.sessions++;
+    t.trail[s.id] = (p.w + p.l) ? p.w / (p.w + p.l) : 0;
+  }));
+  return Object.values(m).map(withDerived).sort((x, y) => y.winPct - x.winPct || y.diff - x.diff);
+}
+
+const pct = v => (v * 100).toFixed(1) + "%";
+const sgn = v => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(2);
+
+function sparkline(trail) {
+  const ids = SESSIONS.map(s => s.id);
+  const pts = ids.map((id, i) => (id in trail ? { x: i, y: trail[id] } : null)).filter(Boolean);
+  const W = 62, H = 20, PAD = 3;
+  const X = i => ids.length > 1 ? PAD + (i * (W - PAD * 2)) / (ids.length - 1) : W / 2;
+  const Y = v => H - PAD - v * (H - PAD * 2);
+  const mid = `<line x1="0" y1="${Y(0.5).toFixed(1)}" x2="${W}" y2="${Y(0.5).toFixed(1)}" stroke="var(--border-strong)" stroke-width="1" stroke-dasharray="2 2"/>`;
+  if (pts.length < 2) {
+    const p = pts[0];
+    return `<svg class="spark" width="${W}" height="${H}" aria-hidden="true">${mid}<circle cx="${X(p.x).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="2.6" fill="var(--faint)"/></svg>`;
+  }
+  const d = pts.map(p => `${X(p.x).toFixed(1)},${Y(p.y).toFixed(1)}`).join(" ");
+  const last = pts[pts.length - 1], first = pts[0];
+  const col = last.y >= first.y ? "var(--pos)" : "var(--neg)";
+  return `<svg class="spark" width="${W}" height="${H}" aria-hidden="true">${mid}
+    <polyline points="${d}" fill="none" stroke="${col}" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="${X(last.x).toFixed(1)}" cy="${Y(last.y).toFixed(1)}" r="2.6" fill="${col}"/></svg>`;
+}
+
+function diffBar(v, max) {
+  const w = Math.min(Math.abs(v) / max, 1) * 50;
+  const style = v >= 0
+    ? `left:50%;width:${w}%;background:var(--pos)`
+    : `right:50%;width:${w}%;background:var(--neg)`;
+  return `<span class="bar" aria-hidden="true"><i style="${style}"></i></span>`;
+}
+
+/* ---------- render ---------- */
+function render() {
+  SESSIONS = DATA.sessions;
+  const facts = SESSIONS.map(sessionFacts);
+  const games = facts.reduce((a, f) => a + f.games, 0);
+  const names = new Set();
+  SESSIONS.forEach(s => s.players.forEach(p => names.add(p.name)));
+  const rows = combined();
+  const leader = rows[0];
+  const widest = rows.slice().sort((a, b) => b.diff - a.diff)[0];
+
+  document.getElementById("tiles").innerHTML = [
+    ["Games decided", games, "across 3 sessions"],
+    ["Players", names.size, "3 played every session"],
+    ["Best win rate", pct(leader.winPct), leader.name + ", " + leader.w + "–" + leader.l],
+    ["Widest margin", sgn(widest.diff), "points per game, " + widest.name]
+  ].map(([k, v, s]) =>
+    `<div class="tile"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div><div class="s">${esc(s)}</div></div>`
+  ).join("");
+
+  document.getElementById("findings").innerHTML = DATA.insights.map(i => `
+    <article class="finding">
+      <span class="chip ${esc(i.tone)}">${esc(i.chip)}</span>
+      <h3>${esc(i.title)}</h3>
+      <p>${esc(i.body)}</p>
+    </article>`).join("");
+
+  const maxAbs = Math.max.apply(null, rows.map(r => Math.abs(r.diff)));
+  document.getElementById("combined").innerHTML = rows.map((r, i) => `
+    <tr>
+      <td class="l who"><span class="rk">${i + 1}</span>&nbsp; ${esc(r.name)}${
+        r.sessions < SESSIONS.length ? ` <span class="part">${r.sessions}s</span>` : ""}</td>
+      <td class="l">${sparkline(r.trail)}</td>
+      <td>${r.w}</td><td>${r.l}</td><td>${r.gp}</td>
+      <td>${pct(r.winPct)}</td>
+      <td>${r.f}</td><td>${r.a}</td>
+      <td class="${r.ptRatio >= 0.5 ? "pos" : "neg"}">${pct(r.ptRatio)}</td>
+      <td class="${r.diff >= 0 ? "pos" : "neg"}">${sgn(r.diff)}</td>
+      <td class="l">${diffBar(r.diff, maxAbs)}</td>
+    </tr>`).join("");
+
+  document.getElementById("cards").innerHTML = SESSIONS.map((s, i) => {
+    const f = facts[i], top = f.players[0];
+    return `<button class="scard" onclick="openCard(${i})" aria-haspopup="dialog">
+      <div class="scard-top">
+        <span class="scard-date">${esc(s.label)}</span>
+        <span class="scard-seed">${esc(s.seed)}</span>
+      </div>
+      <div class="scard-grid">
+        <div><span class="k">Games</span><span class="v">${f.games}</span></div>
+        <div><span class="k">Players</span><span class="v">${s.players.length}</span></div>
+        <div><span class="k">Spread</span><span class="v">${f.spread.toFixed(1)}</span></div>
+      </div>
+      <div class="scard-win">Won by <b>${esc(top.name)}</b> &middot; ${top.w}–${top.l} &middot; ${pct(top.winPct)}</div>
+      ${f.skipped ? `<div class="scard-flag">${f.skipped} placeholder ${f.skipped === 1 ? "game" : "games"} excluded</div>` : ""}
+      <div class="scard-cta">Full match card <span aria-hidden="true">&rarr;</span></div>
+    </button>`;
+  }).join("");
+
+}
+
+/* ---------- match card ---------- */
+let lastFocus = null;
+
+function openCard(i) {
+  const s = SESSIONS[i], f = sessionFacts(s);
+  const maxAbs = Math.max.apply(null, f.players.map(p => Math.abs(p.diff)));
+  lastFocus = document.activeElement;
+
+  document.getElementById("sheet").innerHTML = `
+    <div class="sheet-head">
+      <div>
+        <div class="eyebrow">Match card</div>
+        <h3 id="sheetTitle">${esc(s.label)}</h3>
+        <div class="sub">${esc(s.time)} &middot; ${esc(s.format)} &middot; Seed ${esc(s.seed)}</div>
+      </div>
+      <button class="x" onclick="closeCard()" aria-label="Close">&times;</button>
+    </div>
+    <div class="sheet-body">
+      <div class="facts">
+        ${[["Games", f.games], ["Players", s.players.length],
+           ["Winner", f.players[0].name], ["Diff spread", f.spread.toFixed(2)]]
+          .map(([k, v]) => `<div class="fact"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div></div>`).join("")}
+      </div>
+
+      ${f.skipped ? `<div class="sheet-note"><strong>${f.skipped} placeholder ${f.skipped === 1 ? "game" : "games"} excluded.</strong>
+        Everything below counts wins and losses only. Points for and against are the raw session totals, which
+        still include those games — harmless for the differential, but it nudges each affected player's point
+        ratio a little toward 50%.</div>` : ""}
+
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr>
+            <th class="l">Player</th><th>W</th><th>L</th><th>GP</th>
+            <th>Win%</th><th>F</th><th>A</th><th>Pt ratio</th><th>Diff/gm</th><th class="l">&nbsp;</th>
+          </tr></thead>
+          <tbody>${f.players.map((p, n) => `
+            <tr>
+              <td class="l who"><span class="rk">${n + 1}</span>&nbsp; ${esc(p.name)}</td>
+              <td>${p.w}</td><td>${p.l}</td><td>${p.gp}</td>
+              <td>${pct(p.winPct)}</td>
+              <td>${p.f}</td><td>${p.a}</td>
+              <td class="${p.ptRatio >= 0.5 ? "pos" : "neg"}">${pct(p.ptRatio)}</td>
+              <td class="${p.diff >= 0 ? "pos" : "neg"}">${sgn(p.diff)}</td>
+              <td class="l">${diffBar(p.diff, maxAbs)}</td>
+            </tr>`).join("")}</tbody>
+        </table>
+      </div>
+    </div>`;
+
+  const veil = document.getElementById("veil");
+  veil.classList.add("on");
+  document.body.style.overflow = "hidden";
+  veil.querySelector(".x").focus();
+}
+
+function closeCard() {
+  document.getElementById("veil").classList.remove("on");
+  document.body.style.overflow = "";
+  if (lastFocus) lastFocus.focus();
+}
+
+document.getElementById("veil").addEventListener("click", e => {
+  if (e.target.id === "veil") closeCard();
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape" && document.getElementById("veil").classList.contains("on")) closeCard();
+});
+</script>
