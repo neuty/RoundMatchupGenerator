@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="robots" content="noindex">
+<title>Session Analysis — Doubles Scorecards</title>
+<style>
+  body { margin: 0; }
+  h1, h2, h3, p { margin: 0; }
+</style>
+</head>
+<body>
+<style>
+  :root {
+    --bg:#f1f5f9; --surface:#ffffff; --surface-2:#f8fafc;
+    --border:#e2e8f0; --border-strong:#cbd5e1;
+    --text:#0f172a; --muted:#5b6b80; --faint:#94a3b8;
+    --accent:#4f46e5; --accent-soft:#eef2ff; --accent-line:#c7d2fe;
+    --pos:#0f766e; --pos-soft:#ccfbf1;
+    --neg:#be123c; --neg-soft:#ffe4e6;
+    --warn:#b45309; --warn-soft:#fffbeb; --warn-line:#fcd34d;
+    --shadow:0 1px 2px rgba(15,23,42,.06), 0 8px 24px -12px rgba(15,23,42,.18);
+    --radius:16px;
+    --mono:ui-monospace,'SFMono-Regular',Menlo,'Courier New',monospace;
+    --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:#080f0a; --surface:#0d1f12; --surface-2:#0a1a0e;
+      --border:#1a3823; --border-strong:#2c5c3b;
+      --text:#ecfdf5; --muted:#87a591; --faint:#5f7f6a;
+      --accent:#a3e635; --accent-soft:#152b16; --accent-line:#2f5c1c;
+      --pos:#22d3ee; --pos-soft:#0a2b33;
+      --neg:#fb7185; --neg-soft:#3a1220;
+      --warn:#fbbf24; --warn-soft:#231a04; --warn-line:#5c3200;
+      --shadow:0 1px 2px rgba(0,0,0,.5), 0 8px 28px -14px rgba(0,0,0,.8);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg:#080f0a; --surface:#0d1f12; --surface-2:#0a1a0e;
+    --border:#1a3823; --border-strong:#2c5c3b;
+    --text:#ecfdf5; --muted:#87a591; --faint:#5f7f6a;
+    --accent:#a3e635; --accent-soft:#152b16; --accent-line:#2f5c1c;
+    --pos:#22d3ee; --pos-soft:#0a2b33;
+    --neg:#fb7185; --neg-soft:#3a1220;
+    --warn:#fbbf24; --warn-soft:#231a04; --warn-line:#5c3200;
+    --shadow:0 1px 2px rgba(0,0,0,.5), 0 8px 28px -14px rgba(0,0,0,.8);
+  }
+  :root[data-theme="light"] {
+    --bg:#f1f5f9; --surface:#ffffff; --surface-2:#f8fafc;
+    --border:#e2e8f0; --border-strong:#cbd5e1;
+    --text:#0f172a; --muted:#5b6b80; --faint:#94a3b8;
+    --accent:#4f46e5; --accent-soft:#eef2ff; --accent-line:#c7d2fe;
+    --pos:#0f766e; --pos-soft:#ccfbf1;
+    --neg:#be123c; --neg-soft:#ffe4e6;
+    --warn:#b45309; --warn-soft:#fffbeb; --warn-line:#fcd34d;
+    --shadow:0 1px 2px rgba(15,23,42,.06), 0 8px 24px -12px rgba(15,23,42,.18);
+  }
+
+  body {
+    background:var(--bg); color:var(--text);
+    font-family:var(--sans);
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+  }
+  * { box-sizing:border-box; }
+  :focus-visible { outline:2px solid var(--accent); outline-offset:2px; border-radius:6px; }
+
+  .eyebrow {
+    font-family:var(--mono); font-size:11px; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--muted);
+  }
+
+  /* ---------- gate ---------- */
+  #gate {
+    min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px;
+  }
+  .gate-card {
+    width:100%; max-width:420px; background:var(--surface);
+    border:1px solid var(--border); border-radius:var(--radius);
+    box-shadow:var(--shadow); padding:32px 28px 28px;
+  }
+  .gate-mark {
+    width:38px; height:38px; border-radius:10px; background:var(--accent);
+    display:flex; align-items:center; justify-content:center; margin-bottom:20px;
+  }
+  .gate-card h1 { font-size:20px; font-weight:650; letter-spacing:-.015em; margin:10px 0 6px; }
+  .gate-card p { color:var(--muted); font-size:14px; margin:0 0 22px; }
+  .gate-form { display:flex; flex-direction:column; gap:10px; }
+  .gate-form input {
+    width:100%; padding:12px 14px; font-family:var(--mono); font-size:14px;
+    letter-spacing:.08em; background:var(--surface-2); color:var(--text);
+    border:1px solid var(--border-strong); border-radius:10px;
+  }
+  .gate-form input::placeholder { color:var(--faint); letter-spacing:.14em; }
+  .gate-form button {
+    padding:12px 14px; font-family:var(--sans); font-size:14px; font-weight:600;
+    background:var(--accent); color:var(--bg); border:0; border-radius:10px; cursor:pointer;
+  }
+  :root:not([data-theme="dark"]) .gate-form button { color:#fff; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .gate-form button { color:#08150b; }
+  }
+  :root[data-theme="dark"] .gate-form button { color:#08150b; }
+  .gate-err {
+    font-family:var(--mono); font-size:12px; color:var(--neg);
+    min-height:18px; letter-spacing:.02em;
+  }
+  .shake { animation:shake .3s ease; }
+  @keyframes shake {
+    0%,100%{transform:translateX(0)} 25%{transform:translateX(-6px)} 75%{transform:translateX(6px)}
+  }
+
+  /* ---------- shell ---------- */
+  #app { display:none; }
+  #app.on { display:block; animation:rise .5s ease both; }
+  @keyframes rise { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:none} }
+  .wrap { max-width:1060px; margin:0 auto; padding:40px 20px 72px; }
+
+  header.page { border-bottom:1px solid var(--border); padding-bottom:26px; margin-bottom:30px; }
+  header.page h1 {
+    font-size:clamp(28px,4.4vw,42px); font-weight:680; letter-spacing:-.028em;
+    line-height:1.1; margin:10px 0 12px; text-wrap:balance;
+  }
+  .lede { color:var(--muted); font-size:16px; max-width:62ch; margin:0; }
+
+  .tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(150px,100%),1fr)); gap:12px; margin-top:26px; }
+  .tile {
+    background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:14px 16px;
+  }
+  .tile .k { font-family:var(--mono); font-size:10.5px; letter-spacing:.13em; text-transform:uppercase; color:var(--muted); }
+  .tile .v {
+    font-family:var(--mono); font-size:26px; font-weight:600; letter-spacing:-.02em;
+    font-variant-numeric:tabular-nums; margin-top:4px;
+  }
+  .tile .s { font-size:12px; color:var(--faint); }
+
+  section { margin-top:44px; }
+  .sec-head { display:flex; align-items:baseline; gap:12px; margin-bottom:16px; flex-wrap:wrap; }
+  .sec-head h2 { font-size:19px; font-weight:640; letter-spacing:-.015em; margin:0; }
+  .sec-head .note { font-size:13px; color:var(--muted); }
+
+  /* ---------- findings ---------- */
+  .findings { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr)); gap:12px; }
+  .finding {
+    background:var(--surface); border:1px solid var(--border); border-radius:12px;
+    padding:16px 18px; display:flex; flex-direction:column; gap:8px;
+  }
+  .chip {
+    align-self:flex-start; font-family:var(--mono); font-size:10px; letter-spacing:.12em;
+    text-transform:uppercase; padding:3px 8px; border-radius:5px; border:1px solid;
+  }
+  .chip.good { color:var(--pos); background:var(--pos-soft); border-color:var(--pos); }
+  .chip.warn { color:var(--warn); background:var(--warn-soft); border-color:var(--warn-line); }
+  .chip.info { color:var(--accent); background:var(--accent-soft); border-color:var(--accent-line); }
+  .chip.neutral { color:var(--muted); background:var(--surface-2); border-color:var(--border-strong); }
+  .finding h3 { font-size:15.5px; font-weight:620; margin:0; letter-spacing:-.01em; text-wrap:balance; }
+  .finding p { margin:0; font-size:13.5px; color:var(--muted); line-height:1.6; }
+
+  /* ---------- table ---------- */
+  .tbl-wrap { overflow-x:auto; background:var(--surface); border:1px solid var(--border); border-radius:12px; }
+  table { border-collapse:collapse; width:100%; min-width:620px; }
+  th, td { text-align:right; padding:10px 12px; font-size:13.5px; white-space:nowrap; }
+  th {
+    font-family:var(--mono); font-size:10px; letter-spacing:.12em; text-transform:uppercase;
+    color:var(--muted); font-weight:500; border-bottom:1px solid var(--border);
+  }
+  td { font-family:var(--mono); font-variant-numeric:tabular-nums; border-bottom:1px solid var(--border); }
+  tbody tr:last-child td { border-bottom:0; }
+  th.l, td.l { text-align:left; }
+  td.who { font-family:var(--sans); font-weight:580; }
+  .rk { color:var(--faint); font-size:11.5px; }
+  .pos { color:var(--pos); }
+  .neg { color:var(--neg); }
+  .part { color:var(--faint); font-size:11px; font-family:var(--mono); }
+
+  .bar { position:relative; width:112px; height:9px; background:var(--surface-2);
+         border-radius:2px; display:inline-block; vertical-align:middle; }
+  .bar::before { content:""; position:absolute; left:50%; top:-2px; bottom:-2px;
+                 width:1px; background:var(--border-strong); }
+  .bar i { position:absolute; top:0; height:9px; border-radius:2px; }
+  .spark { vertical-align:middle; }
+
+  /* ---------- sessions ---------- */
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(268px,100%),1fr)); gap:12px; }
+  .scard {
+    text-align:left; font-family:var(--sans); color:var(--text); cursor:pointer;
+    background:var(--surface); border:1px solid var(--border); border-radius:12px;
+    padding:18px; display:flex; flex-direction:column; gap:12px;
+    transition:border-color .18s ease, transform .18s ease, box-shadow .18s ease;
+  }
+  .scard:hover { border-color:var(--accent); transform:translateY(-2px); box-shadow:var(--shadow); }
+  .scard-top { display:flex; justify-content:space-between; align-items:baseline; gap:8px; }
+  .scard-date { font-size:16.5px; font-weight:640; letter-spacing:-.01em; }
+  .scard-seed { font-family:var(--mono); font-size:11px; color:var(--faint); letter-spacing:.06em; }
+  .scard-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+  .scard-grid div { display:flex; flex-direction:column; gap:1px; }
+  .scard-grid .k { font-family:var(--mono); font-size:9.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); }
+  .scard-grid .v { font-family:var(--mono); font-size:16px; font-variant-numeric:tabular-nums; }
+  .scard-win { font-size:13px; color:var(--muted); }
+  .scard-win b { color:var(--text); font-weight:600; }
+  .scard-cta {
+    font-family:var(--mono); font-size:10.5px; letter-spacing:.11em; text-transform:uppercase;
+    color:var(--accent); display:flex; align-items:center; gap:6px;
+  }
+  .scard-flag {
+    font-family:var(--mono); font-size:10px; letter-spacing:.08em; color:var(--warn);
+  }
+
+  /* ---------- modal ---------- */
+  .veil {
+    position:fixed; inset:0; background:rgba(8,15,10,.62); backdrop-filter:blur(3px);
+    display:none; align-items:flex-start; justify-content:center; padding:24px; overflow-y:auto; z-index:50;
+  }
+  .veil.on { display:flex; }
+  .sheet {
+    background:var(--surface); border:1px solid var(--border-strong); border-radius:var(--radius);
+    width:100%; max-width:760px; box-shadow:var(--shadow); margin:auto;
+    animation:pop .22s ease both;
+  }
+  @keyframes pop { from{opacity:0;transform:scale(.97) translateY(8px)} to{opacity:1;transform:none} }
+  .sheet-head {
+    display:flex; justify-content:space-between; align-items:flex-start; gap:16px;
+    padding:20px 22px 16px; border-bottom:1px solid var(--border);
+  }
+  .sheet-head h3 { margin:6px 0 4px; font-size:20px; font-weight:660; letter-spacing:-.02em; }
+  .sheet-head .sub { font-family:var(--mono); font-size:11.5px; color:var(--muted); letter-spacing:.04em; }
+  .x {
+    background:var(--surface-2); border:1px solid var(--border); color:var(--muted);
+    width:30px; height:30px; border-radius:8px; cursor:pointer; font-size:16px; line-height:1; flex:none;
+  }
+  .x:hover { color:var(--text); border-color:var(--border-strong); }
+  .sheet-body { padding:18px 22px 24px; display:flex; flex-direction:column; gap:20px; }
+  .facts { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(112px,100%),1fr)); gap:10px; }
+  .fact { background:var(--surface-2); border:1px solid var(--border); border-radius:10px; padding:10px 12px; }
+  .fact .k { font-family:var(--mono); font-size:9.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); }
+  .fact .v { font-family:var(--mono); font-size:17px; font-variant-numeric:tabular-nums; margin-top:2px; }
+  .sheet-note {
+    font-size:13px; color:var(--warn); background:var(--warn-soft);
+    border:1px solid var(--warn-line); border-radius:10px; padding:10px 12px; line-height:1.55;
+  }
+  footer.page {
+    margin-top:52px; padding-top:20px; border-top:1px solid var(--border);
+    font-size:12.5px; color:var(--faint); display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap;
+  }
+
+  @media (max-width: 560px) {
+    .wrap { padding:28px 14px 56px; }
+    header.page { padding-bottom:20px; margin-bottom:24px; }
+    .lede { font-size:15px; }
+    section { margin-top:34px; }
+    .sec-head { gap:4px; }
+    .sec-head .note { font-size:12.5px; }
+    th, td { padding:9px 10px; font-size:13px; }
+    .veil { padding:10px; }
+    .sheet-head { padding:16px 16px 14px; }
+    .sheet-body { padding:14px 16px 20px; }
+    .x { width:44px; height:44px; font-size:20px; }
+    footer.page { flex-direction:column; gap:6px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration:.001ms !important; transition-duration:.001ms !important; }
+  }
+</style>
+
+<div id="gate">
+  <div class="gate-card" id="gateCard">
+    <div class="gate-mark">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+        <rect x="2" y="4" width="16" height="12" rx="1.5" stroke="currentColor" stroke-width="1.5" style="color:var(--bg)"/>
+        <line x1="10" y1="4" x2="10" y2="16" stroke="currentColor" stroke-width="1.5" style="color:var(--bg)"/>
+        <line x1="2" y1="10" x2="18" y2="10" stroke="currentColor" stroke-width="1" style="color:var(--bg)"/>
+      </svg>
+    </div>
+    <div class="eyebrow">Protected</div>
+    <h1>Session analysis</h1>
+    <p>Three doubles scorecards, 20 June to 8 August 2026. Enter the passphrase to decrypt.</p>
+    <form class="gate-form" id="gateForm">
+      <input type="password" id="pw" placeholder="PASSPHRASE" autocomplete="off" spellcheck="false" aria-label="Passphrase">
+      <button type="submit">Unlock</button>
+      <div class="gate-err" id="err" role="status" aria-live="polite"></div>
+    </form>
+  </div>
+</div>
+
+<div id="app">
+  <div class="wrap">
+    <header class="page">
+      <div class="eyebrow">Doubles &middot; 2v2 &middot; 1 court</div>
+      <h1>Three sessions, seven players, one very consistent winner</h1>
+      <p class="lede">Form and results across 20 June to 8 August 2026. One player has won every session and is still improving, while two of the bottom three are closing the gap fast.</p>
+      <div class="tiles" id="tiles"></div>
+    </header>
+
+    <section>
+      <div class="sec-head">
+        <h2>What the numbers show</h2>
+        <span class="note">Eight findings, strongest signal first</span>
+      </div>
+      <div class="findings" id="findings"></div>
+    </section>
+
+    <section>
+      <div class="sec-head">
+        <h2>Combined standings</h2>
+        <span class="note">All three sessions &middot; Trend is win rate by session &middot; Pt ratio is F &divide; (F + A)</span>
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th class="l">Player</th><th class="l">Trend</th>
+              <th>W</th><th>L</th><th>GP</th>
+              <th>Win%</th><th>F</th><th>A</th><th>Pt ratio</th><th>Diff/gm</th><th class="l">&nbsp;</th>
+            </tr>
+          </thead>
+          <tbody id="combined"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <div class="sec-head">
+        <h2>Sessions</h2>
+        <span class="note">Select a session for its full match card</span>
+      </div>
+      <div class="cards" id="cards"></div>
+    </section>
+
+    <footer class="page">
+      <span>Derived from Matchup Generator scorecard exports.</span>
+      <span>Games played counts wins and losses only. Placeholder draws are excluded throughout.</span>
+    </footer>
+  </div>
+</div>
+
+<div class="veil" id="veil" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+  <div class="sheet" id="sheet"></div>
+</div>
+
+<script>
+const CIPHER = "118051dcede1062ecf3ed8e65b783c5d35b18ed989935ac72fc507352233486d0316af2e5ce9e98f00441dd37726dadf78422b31eaa01793c0a0a56c5fe16b5f9fae0c1ad980611d2a9c1ab000808360f95152331b7bed67b1f0ea82e4f785dad25fa8c0bba3c7b90405d01041b29bb2e1558da0d47493e92f20dc7b997cfbe0a5496cbc134874a13346d4c50ee184cbdce2842057388e24625631f6b46a6c0147eb0e1bcb0db8a947fa1d63b0d9e8daef980793642f23f9f9924c5c4a5a34285cea42087a61d9ecb4961db1144430850a4e7125b84c55bd67e4d0901cf6d25098f6b31fc671725801b2cc36e7e4b6b484806089842f28bdcd4dfdf5637524361fc9d864ced64178af6792b1c3d408b085d7be8a364528daeb123791773e1497b00a06ffa52963018dac289b24af8a14da896018015fecdc46331c0ec17914fd52ae26504332d4d65d9e9cadef23666b377c31cfc68ddc8b577bb4d8295684a29e08d7937a8bf2a85711a412a00280bc80e1b726973d4d4ad4db193ab16d6694b72c949d6c48ba60b03016290b3c0771af2bf8ae073af3326f25e411ffe7c6de87d57adb3948ec6223863a2c649701dc65b4213297ce1c03e1051c031a440e63978ba693a5e1000e1d4deae9bbe3c629790c15ef49a0a711eacf4cb9601be81d062c067a5eea78a18d9a43ee1a3c596dce60df6552a2a13dfd78c465375dac25d7c052b4a54e9e02523ca3986f0fd32de33d98e19632c71d1c8eb1df1a4c7c24d0523dfddb4a52a3f29325de33eb9141fe4eef831fba2fff7595e5036131550263657fd7c190bf844a555ea85db3296a8e49cb9401487fcb635093de6b65ca9bc726669553732ebbd3895f6d55b04ed61ed8d33d81ee7036ccbb0c7ef58dddbe915c7240215ecae6ce120401cff7e1a01c887b79cc134cbfa9db7ed85893c61508491c9804447d7496857632339012d2f0acd114f0409b8ce003bfa7027d157f0a0ffa7472dc6e255ea8f8572684338076c2ef577d514b68739d7be552bfb3ea5e228118355bc26cfb26a878c5e1528f0e23443a9f8c1c29f452ee683f5a1b0f5ed713514dc7ed348fd6c6b247461943616adfe5dd7e675ef20a1e34204f2d4da9f3b5e7a4b95d8399b80990627dab75a909f3e67ade76cb060af5d2b8242fd1efedeff3e6d80700cb46b0aed3e325074778615ee6860c6d5c8f497dd60db8a4acc3d459495b03e5c4e8fc04850a37b6c6987ea1e2ecdbecd20f5f571668f4879ac1f05b2adabdf321b6600841fca157603423cebbf182bd3f0c47c13ead79980a51224bebebc76819e4c8357765ee1cbe9fc458ae75d56a6b02657004b519abbc5fd543680b1a2ca74fdefa1ece5600dd49113cfbccd53dd11f5489ccd53f030fbd58693c3aefda72989fd1dd942ec0098b9cd2176c36ed615b5b620b277039794c1e4a87dd98c9b9beee4d0ed2a457ce21017c67ae790790aae5e8dbde4746b66137cd101f8ac51f0800248405b75bc42c0aac56bb5b3803d53700374e6cf610ee24cc22cf574666037f35bec9552c2669bb956ceec8f31ade292e2e4ee1c98928116cba66a19fe5db6600d0468541d3d0a2486aded9d6114648a4192ac5ba11f3d45199a41fdf4c203ba45f598941175deee8597027a4add5fd10a44d0e2d5fb22ab994057da5abb117f8c160c49d7649e7ee53eaa1a42dbcb7925f11b79e39cf58573afe3380af6e0110888ac099205add74f7a6a5e8be08373d82c96ebe61d9e8076b366b1d493efc24d867ac064e5371f57d44a5725fad257eab5a874bfe2e08e0347989a16bbb05e7a955b884f9bcd1149603050a44d0b9f958bc0ad43c50f720f902f0106ff249c0461a7c3d7050c737a3c13a239f0d06eaef59880a72e1bf8e79e056e3d2a75dabb7908ab33ed7808069bf9269524efc21a532735056d6d25488467302f9e57257c2fb8afe208cf718df6f8448f8e176b77626eb6d19e85b1e91dd49e9aae95099543da39cb222b4894f09f8661c08b51c8f42f3fe9a7ac5a5328de31f7fe62c707f4dc4b114adfaf808f042c87860ba564a7863de256589ee8b2458fe605658b0c8f97500df4201155895c78555414730762acf0164d47b001fff6e6ac76fb9055a1f7a61de8b51bac8b04cbeee1c881c853eab8fd6305dd91545c8a70c1b5e531134d7216da5301019b409aad4c8ce0ba00a494095e93e74e47900870c4734c9356518254e19cb6faa9670064af87f417ae9cd9e4b3f16dfe8f395adf11b56bbb724e63a8b8add7efcd066071e26c362a8e98d7f17bb466d3b1f91e052e080809a6e9c3ab9c9224cc4cdb3959bab2c61db943b08d1a5201781ef5b58740631df0e319617d375bbb59b8baef661084165cd67d8cdc83c5fa1af922bd9ad6fef9e6bdbacc2f0f9d4459daa2dcf6861120ab6b8d39f2ce745034f70efc5b42a91caf972f8058640c37c4dd90c94000caeeba1939ec710962fdd0fb59c461b1c55b2adbf078b080c07b76d7e9c66ee6d1a779a8ca18769d0b16490b4afca1798c55e0f90e3863c6189961ce49e1df288501bf949dff346bcd705a4a0940791ada90d45ab85acf75cc2477c5b201f5ef8b47e147113b5b92deab28997939463f07c13dfb250505117234c322f0bd9e630841635047eb78ab27ff98006d048babdc25102037a3ba7979810eafb61e88c2e701776589783ba54388fbb39b2f445f09afa80cb87ce0628bd08836a06bdebefbab837a2ad9654a287cb8cd282df81c216c119efbdab99fc8917490e6e758baf8cc8fa868da9bfefba26ade29af0e6d15e8ec2d7a539e445a4e1af6a02cf7a4672f7f980dde826adfce6bcc72f38431a527c6a515f3a9d3d4a65da876a76d30733c5904c39f38d4cad71f939cd6ce7acf41268da72264dd103ec27b4dbe400354e25ece4fc42335dd9615dbe07943228d440e6fd8f841ab4ef95f82392f4fae6dadc565764261b2a0d2d8751ca9af7547d70cade9ff84bf3904d69124ae5bca569d033e7601449b1ee4b7d6125137255510d744f841d83b5f88afce36305644f4391c8c9070faa08aeb124ea4dc1cb25fd583ba4b9aacff855b4fe4c703e326a110742102fbe28a7dd77b617bede1ee461865f3e4bc815ddd5f538fa8b6ec84d0915c56daa97135206e7fa8ea5c8afdb080fadb902a2e1e3a4b30303297b8be5f65654671d973c5d7a9264802c56343f35de23863c9573e42e5efc8ef1e48d5df64ed199e37ef3575eec97b65aa0c9b6d21274ebc4f41a75a741bcf155c177e2bc361aa95e0286b08dc1849cdbddecf18595be397a354bf80e9b3938991c93ee92eecba6b56c128f072fa96f971d546767b8f786f1ca6a74227a13323aad344765d2306b67dc2f1984b312c3298d4ecb0328f46f7def12397c3853cc6bd9bc7050be2171704c23a9e8f3ca47b137c456435a56b8f255fb14f36e85de122083190ff2d21f18533bc9fbef40d93bafb5a5f6547ddb1c9769e1e724070d4937765fbf2c286a4c7c6afdbd047769d4778e1daf9f881e7a8bbe244f33361478bea533b88d9e3314944cd57736ed621baf9b2e3718192978f5eeb0ff6f7f873f56afa66d43e1a090e7a9063473c1c25d719930bef0d50d97309db51594e19518b6ecbdd61eee5218b7ac6c9b86fb765d3b0b19381905c4baa85b1528f4b38565473e0c874921ff80ae340df4d344d178c37d3129dab2293c0f259cf181d05edd46fcb40f0763a38a164e7f315f88fc7b10075e3fb086661012dd883b592517769be7039f566caddef8314c0366310e8037980e555e598f7585eccdf4551fc5383ff2c166a5ec57030819e60905e018f23f71f881e05c20d9e937c83c511bd4c33457a8c969c4a9e6c7cb3fd73e1522af8c88ea2af8ae04f68a170129bb836e489b4ac6af03c2e73e3afb2a4fa329b2c5633ee806744b0c740d31341c68158cfa0bf1f56ab721c9aebaaaa84b7026d899e9dc05feba964a9a116b04022950aaf48b7e1d83c5c28995c3d0dfa4b779dacb572b2aa841f0553e3de9a91a451936097b618441d548f6156d4ae82d4b9983b195e8dcbc09426ae5e29a6abe9c9af7b8196a7d198700f2678cfea52c1807de424075239dc2cab586f7f060c3ffeab0d069817691bfe33de8bbf66f791126639b7375975487c3462dce7d5c7b8da25e0bfb81f984e013dc81b477adb31fa6627d9138bf25ce203b5d4d0aa602e15089a3e3a2cc8b1d8a310e2d8a75c5cc7811eb1dce4cdb37ef8e60314735b70c4d8df379f5df631e066c737ca90cdda205801218ace34947f7283e1acdabe211c31278f771acebf314b2807a9e5508029b59ed621372315dd1475e7159fb68ec557f46aa7fb3b3b7107c34b5694367d79afab3a71dda1576aa2384b3b53a08a8dd8c1912859f467bc8fa16c36bdcabc497a2b08c392e2ad846ad06ff95d61f8ef19f67ba27a51f5d57234c9fb35c0e7606f308090cfc94ee9cb2376fc5a2250329ca15d5c8598fa5c016301bd541d4997ff0597778753f3ebe23618bca44b55e5b7179fa58d6d10c363c681570c77d1e0109a3ab939f7f5cd186b1b350e0fa612c2b5f3c307af1857f5514c3a8a915d8f37d0080783809581024f79c59b9014f630c007871c0e25bcf0488b1fc9fc9929c15354435598c647d6673b98e291375f45f7547ec9ce5ffa790ae6c9cf37bc04c9255c389c909ca24c4245dc864f5110ae4b441aa0e27022401de92c2ef03d371d38314c048da34ccbfc91ab0e3a937bfe67832d64c1e51986fbc1d408c43e6f2dbcbcf2d3e14ac169e8462235ee4a4e36d6efa52f1a90ccb8b9a2c4d8872c70aead6889232c599bccdded3e54452d6dd823a3a8a0dd884e912944b56922263056ce8a90abf58f52ec8a6b056b44f1475395ecbb1e36a921f105ccf52797c33aa2b4540e39a17891401a3df3a1079c9ee32133be13dd1d1cfdff5d66039a92151cb748195bd435dd0fe9d150ebf0d18a48a153d4a23d64225ceee9a174e0801bda34379c157a1c95aedcb33f1119d0cba99a67c5b0247b378147075856c8df81844f9e86babe1b695506e0a885c5c21bea6dc4f669a570e33824768fce9c9450d041821c6dfc3b01fceade28535505d427d4f9eaca9258e4e8f1cdd59423d2a0f4f7e3d8ca9cdbb17de2dc6aaa072ced8221b3899e7f1c48171e6be96f34f63522cc643ba47a6a89bf5e96897b5788f79a02c5b803def9b27e46cc7c79e6c71d14d9bf7fda55b15ded2ca55f985faf3fdcba22b7e6f02d28aad792adebc45e38f79cce07f06";
+
+function fnv1a(s) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return h >>> 0;
+}
+function mulberry32(a) {
+  return function () {
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function decrypt(hex, pass) {
+  const rnd = mulberry32(fnv1a(pass));
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; i++) {
+    out[i] = parseInt(hex.substr(i * 2, 2), 16) ^ Math.floor(rnd() * 256);
+  }
+  const txt = new TextDecoder().decode(out);
+  if (txt.slice(0, 4) !== "RMG1") return null;
+  try { return JSON.parse(txt.slice(4)); } catch (e) { return null; }
+}
+
+const esc = s => String(s).replace(/[&<>"']/g, c =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+let DATA = null, SESSIONS = null;
+
+document.getElementById("gateForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const pw = document.getElementById("pw").value.trim();
+  const data = pw ? decrypt(CIPHER, pw) : null;
+  if (!data) {
+    const card = document.getElementById("gateCard");
+    document.getElementById("err").textContent = "Passphrase did not decrypt. Try again.";
+    card.classList.remove("shake"); void card.offsetWidth; card.classList.add("shake");
+    document.getElementById("pw").select();
+    return;
+  }
+  DATA = data;
+  document.getElementById("gate").style.display = "none";
+  document.getElementById("app").classList.add("on");
+  render();
+});
+
+/* ---------- derivation ----------
+   Draws were entered as placeholders, so they are dropped entirely:
+   a game counts only if it produced a win and a loss. A drawn game
+   contributes zero to F − A, so differentials stay clean regardless. */
+function withDerived(p) {
+  const gp = p.w + p.l;
+  return Object.assign({}, p, {
+    gp,
+    winPct: gp ? p.w / gp : 0,
+    ptRatio: (p.f + p.a) ? p.f / (p.f + p.a) : 0,
+    diff: gp ? (p.f - p.a) / gp : 0
+  });
+}
+function sessionFacts(s) {
+  const ps = s.players.map(withDerived).sort((a, b) => b.winPct - a.winPct || b.diff - a.diff);
+  const diffs = ps.map(p => p.diff);
+  return {
+    players: ps,
+    games: ps.reduce((a, p) => a + p.gp, 0) / 4,
+    skipped: s.players.reduce((a, p) => a + p.d, 0) / 4,
+    spread: Math.max.apply(null, diffs) - Math.min.apply(null, diffs)
+  };
+}
+function combined() {
+  const m = {};
+  SESSIONS.forEach(s => s.players.forEach(p => {
+    const t = m[p.name] || (m[p.name] = { name: p.name, w: 0, l: 0, f: 0, a: 0, sessions: 0, trail: {} });
+    t.w += p.w; t.l += p.l; t.f += p.f; t.a += p.a; t.sessions++;
+    t.trail[s.id] = (p.w + p.l) ? p.w / (p.w + p.l) : 0;
+  }));
+  return Object.values(m).map(withDerived).sort((x, y) => y.winPct - x.winPct || y.diff - x.diff);
+}
+
+const pct = v => (v * 100).toFixed(1) + "%";
+const sgn = v => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(2);
+
+function sparkline(trail) {
+  const ids = SESSIONS.map(s => s.id);
+  const pts = ids.map((id, i) => (id in trail ? { x: i, y: trail[id] } : null)).filter(Boolean);
+  const W = 62, H = 20, PAD = 3;
+  const X = i => ids.length > 1 ? PAD + (i * (W - PAD * 2)) / (ids.length - 1) : W / 2;
+  const Y = v => H - PAD - v * (H - PAD * 2);
+  const mid = `<line x1="0" y1="${Y(0.5).toFixed(1)}" x2="${W}" y2="${Y(0.5).toFixed(1)}" stroke="var(--border-strong)" stroke-width="1" stroke-dasharray="2 2"/>`;
+  if (pts.length < 2) {
+    const p = pts[0];
+    return `<svg class="spark" width="${W}" height="${H}" aria-hidden="true">${mid}<circle cx="${X(p.x).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="2.6" fill="var(--faint)"/></svg>`;
+  }
+  const d = pts.map(p => `${X(p.x).toFixed(1)},${Y(p.y).toFixed(1)}`).join(" ");
+  const last = pts[pts.length - 1], first = pts[0];
+  const col = last.y >= first.y ? "var(--pos)" : "var(--neg)";
+  return `<svg class="spark" width="${W}" height="${H}" aria-hidden="true">${mid}
+    <polyline points="${d}" fill="none" stroke="${col}" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="${X(last.x).toFixed(1)}" cy="${Y(last.y).toFixed(1)}" r="2.6" fill="${col}"/></svg>`;
+}
+
+function diffBar(v, max) {
+  const w = Math.min(Math.abs(v) / max, 1) * 50;
+  const style = v >= 0
+    ? `left:50%;width:${w}%;background:var(--pos)`
+    : `right:50%;width:${w}%;background:var(--neg)`;
+  return `<span class="bar" aria-hidden="true"><i style="${style}"></i></span>`;
+}
+
+/* ---------- render ---------- */
+function render() {
+  SESSIONS = DATA.sessions;
+  const facts = SESSIONS.map(sessionFacts);
+  const games = facts.reduce((a, f) => a + f.games, 0);
+  const names = new Set();
+  SESSIONS.forEach(s => s.players.forEach(p => names.add(p.name)));
+  const rows = combined();
+  const leader = rows[0];
+  const widest = rows.slice().sort((a, b) => b.diff - a.diff)[0];
+
+  document.getElementById("tiles").innerHTML = [
+    ["Games decided", games, "across 3 sessions"],
+    ["Players", names.size, "3 played every session"],
+    ["Best win rate", pct(leader.winPct), leader.name + ", " + leader.w + "–" + leader.l],
+    ["Widest margin", sgn(widest.diff), "points per game, " + widest.name]
+  ].map(([k, v, s]) =>
+    `<div class="tile"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div><div class="s">${esc(s)}</div></div>`
+  ).join("");
+
+  document.getElementById("findings").innerHTML = DATA.insights.map(i => `
+    <article class="finding">
+      <span class="chip ${esc(i.tone)}">${esc(i.chip)}</span>
+      <h3>${esc(i.title)}</h3>
+      <p>${esc(i.body)}</p>
+    </article>`).join("");
+
+  const maxAbs = Math.max.apply(null, rows.map(r => Math.abs(r.diff)));
+  document.getElementById("combined").innerHTML = rows.map((r, i) => `
+    <tr>
+      <td class="l who"><span class="rk">${i + 1}</span>&nbsp; ${esc(r.name)}${
+        r.sessions < SESSIONS.length ? ` <span class="part">${r.sessions}s</span>` : ""}</td>
+      <td class="l">${sparkline(r.trail)}</td>
+      <td>${r.w}</td><td>${r.l}</td><td>${r.gp}</td>
+      <td>${pct(r.winPct)}</td>
+      <td>${r.f}</td><td>${r.a}</td>
+      <td class="${r.ptRatio >= 0.5 ? "pos" : "neg"}">${pct(r.ptRatio)}</td>
+      <td class="${r.diff >= 0 ? "pos" : "neg"}">${sgn(r.diff)}</td>
+      <td class="l">${diffBar(r.diff, maxAbs)}</td>
+    </tr>`).join("");
+
+  document.getElementById("cards").innerHTML = SESSIONS.map((s, i) => {
+    const f = facts[i], top = f.players[0];
+    return `<button class="scard" onclick="openCard(${i})" aria-haspopup="dialog">
+      <div class="scard-top">
+        <span class="scard-date">${esc(s.label)}</span>
+        <span class="scard-seed">${esc(s.seed)}</span>
+      </div>
+      <div class="scard-grid">
+        <div><span class="k">Games</span><span class="v">${f.games}</span></div>
+        <div><span class="k">Players</span><span class="v">${s.players.length}</span></div>
+        <div><span class="k">Spread</span><span class="v">${f.spread.toFixed(1)}</span></div>
+      </div>
+      <div class="scard-win">Won by <b>${esc(top.name)}</b> &middot; ${top.w}–${top.l} &middot; ${pct(top.winPct)}</div>
+      ${f.skipped ? `<div class="scard-flag">${f.skipped} placeholder ${f.skipped === 1 ? "game" : "games"} excluded</div>` : ""}
+      <div class="scard-cta">Full match card <span aria-hidden="true">&rarr;</span></div>
+    </button>`;
+  }).join("");
+
+}
+
+/* ---------- match card ---------- */
+let lastFocus = null;
+
+function openCard(i) {
+  const s = SESSIONS[i], f = sessionFacts(s);
+  const maxAbs = Math.max.apply(null, f.players.map(p => Math.abs(p.diff)));
+  lastFocus = document.activeElement;
+
+  document.getElementById("sheet").innerHTML = `
+    <div class="sheet-head">
+      <div>
+        <div class="eyebrow">Match card</div>
+        <h3 id="sheetTitle">${esc(s.label)}</h3>
+        <div class="sub">${esc(s.time)} &middot; ${esc(s.format)} &middot; Seed ${esc(s.seed)}</div>
+      </div>
+      <button class="x" onclick="closeCard()" aria-label="Close">&times;</button>
+    </div>
+    <div class="sheet-body">
+      <div class="facts">
+        ${[["Games", f.games], ["Players", s.players.length],
+           ["Winner", f.players[0].name], ["Diff spread", f.spread.toFixed(2)]]
+          .map(([k, v]) => `<div class="fact"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div></div>`).join("")}
+      </div>
+
+      ${f.skipped ? `<div class="sheet-note"><strong>${f.skipped} placeholder ${f.skipped === 1 ? "game" : "games"} excluded.</strong>
+        Everything below counts wins and losses only. Points for and against are the raw session totals, which
+        still include those games — harmless for the differential, but it nudges each affected player's point
+        ratio a little toward 50%.</div>` : ""}
+
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr>
+            <th class="l">Player</th><th>W</th><th>L</th><th>GP</th>
+            <th>Win%</th><th>F</th><th>A</th><th>Pt ratio</th><th>Diff/gm</th><th class="l">&nbsp;</th>
+          </tr></thead>
+          <tbody>${f.players.map((p, n) => `
+            <tr>
+              <td class="l who"><span class="rk">${n + 1}</span>&nbsp; ${esc(p.name)}</td>
+              <td>${p.w}</td><td>${p.l}</td><td>${p.gp}</td>
+              <td>${pct(p.winPct)}</td>
+              <td>${p.f}</td><td>${p.a}</td>
+              <td class="${p.ptRatio >= 0.5 ? "pos" : "neg"}">${pct(p.ptRatio)}</td>
+              <td class="${p.diff >= 0 ? "pos" : "neg"}">${sgn(p.diff)}</td>
+              <td class="l">${diffBar(p.diff, maxAbs)}</td>
+            </tr>`).join("")}</tbody>
+        </table>
+      </div>
+    </div>`;
+
+  const veil = document.getElementById("veil");
+  veil.classList.add("on");
+  document.body.style.overflow = "hidden";
+  veil.querySelector(".x").focus();
+}
+
+function closeCard() {
+  document.getElementById("veil").classList.remove("on");
+  document.body.style.overflow = "";
+  if (lastFocus) lastFocus.focus();
+}
+
+document.getElementById("veil").addEventListener("click", e => {
+  if (e.target.id === "veil") closeCard();
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape" && document.getElementById("veil").classList.contains("on")) closeCard();
+});
+</script>
+</body>
+</html>
