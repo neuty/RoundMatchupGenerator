@@ -248,6 +248,24 @@
   .pcard-form { display:flex; align-items:center; gap:9px; }
   .pcard-form .lbl { font-family:var(--mono); font-size:9.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--faint); }
 
+  /* ---------- ratings ---------- */
+  .rbar { position:relative; width:120px; height:9px; background:var(--surface-2); border-radius:2px;
+          display:inline-block; vertical-align:middle; }
+  .rbar i { position:absolute; top:0; height:9px; border-radius:2px; background:var(--accent-line); }
+  .rbar b { position:absolute; top:-2px; width:2px; height:13px; background:var(--accent); }
+  .rng { font-family:var(--mono); font-size:11.5px; color:var(--faint); font-variant-numeric:tabular-nums; }
+  .explain {
+    margin-top:14px; background:var(--surface); border:1px solid var(--border);
+    border-radius:12px; padding:18px 20px; display:flex; flex-direction:column; gap:14px;
+  }
+  .explain h4 { margin:0 0 4px; font-size:13.5px; font-weight:640; letter-spacing:-.005em; }
+  .explain p { margin:0; font-size:13px; color:var(--muted); line-height:1.62; }
+  .explain .defs { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(240px,100%),1fr)); gap:14px; }
+  .explain code {
+    font-family:var(--mono); font-size:12px; background:var(--surface-2);
+    border:1px solid var(--border); border-radius:4px; padding:1px 5px;
+  }
+
   /* ---------- match log ---------- */
   .subhead {
     font-family:var(--mono); font-size:10px; letter-spacing:.12em; text-transform:uppercase;
@@ -404,6 +422,26 @@
 
     <section>
       <div class="sec-head">
+        <h2>Provisional ratings</h2>
+        <span class="note" id="ratingNote"></span>
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th class="l">Player</th>
+              <th>Rating</th><th class="l">95% range</th>
+              <th>RD</th><th>Volatility</th><th>Games</th><th class="l">&nbsp;</th>
+            </tr>
+          </thead>
+          <tbody id="ratingRows"></tbody>
+        </table>
+      </div>
+      <div class="explain" id="ratingExplain"></div>
+    </section>
+
+    <section>
+      <div class="sec-head">
         <h2>The sessions themselves</h2>
         <span class="note">Give one a poke for the full match card</span>
       </div>
@@ -528,6 +566,100 @@ const byRecord = bag => Object.entries(bag)
   .map(([name, r]) => ({ name, ...r, gp: r.w + r.l, rate: r.w / (r.w + r.l) }))
   .sort((a, b) => b.rate - a.rate || b.gp - a.gp);
 
+/* ---------- Glicko-2 ----------
+   Needs individual match results, so only sessions carrying a Rounds export
+   can be rated. One rating period per session.
+
+   Glickman's system is for one-on-one play. The doubles adaptation here
+   collapses the opposing pair into a single virtual opponent (mean mu, and the
+   standard error of that mean for phi) and takes the expected score from the
+   two team averages, so being carried by a strong partner earns less. That
+   adaptation is not part of the published system and is the least certain part
+   of these numbers. Constants are Glickman's defaults; tau caps how fast
+   volatility may move. */
+const GL = { scale: 173.7178, tau: 0.5, eps: 1e-6, base: 1500, rd0: 350, sig0: 0.06 };
+const gPhi = phi => 1 / Math.sqrt(1 + 3 * phi * phi / (Math.PI * Math.PI));
+const gExp = (mu, muOpp, phiOpp) => 1 / (1 + Math.exp(-gPhi(phiOpp) * (mu - muOpp)));
+
+function glickoStep(pl, res) {
+  // Sat out the period: rating and volatility hold, uncertainty grows.
+  if (!res.length) return { mu: pl.mu, phi: Math.sqrt(pl.phi * pl.phi + pl.sigma * pl.sigma), sigma: pl.sigma };
+  let vInv = 0, dSum = 0;
+  for (const r of res) {
+    const gj = gPhi(r.phiOpp);
+    vInv += gj * gj * r.E * (1 - r.E);
+    dSum += gj * (r.s - r.E);
+  }
+  const v = 1 / vInv, delta = v * dSum, phi = pl.phi;
+  const a = Math.log(pl.sigma * pl.sigma);
+  const f = x => {
+    const ex = Math.exp(x);
+    return (ex * (delta * delta - phi * phi - v - ex)) / (2 * Math.pow(phi * phi + v + ex, 2))
+         - (x - a) / (GL.tau * GL.tau);
+  };
+  let A = a, B;
+  if (delta * delta > phi * phi + v) B = Math.log(delta * delta - phi * phi - v);
+  else { let k = 1; while (f(a - k * GL.tau) < 0) k++; B = a - k * GL.tau; }
+  let fA = f(A), fB = f(B);
+  while (Math.abs(B - A) > GL.eps) {
+    const C = A + (A - B) * fA / (fB - fA), fC = f(C);
+    if (fC * fB <= 0) { A = B; fA = fB; } else { fA = fA / 2; }
+    B = C; fB = fC;
+  }
+  const sigma = Math.exp(A / 2);
+  const phiStar = Math.sqrt(phi * phi + sigma * sigma);
+  const phiNew = 1 / Math.sqrt(1 / (phiStar * phiStar) + 1 / v);
+  return { mu: pl.mu + phiNew * phiNew * dSum, phi: phiNew, sigma: sigma };
+}
+
+let RATINGS = null;
+function ratings() {
+  if (RATINGS) return RATINGS;
+  const rated = SESSIONS.filter(s => s.rounds);
+  const roster = [...new Set(rated.flatMap(s => s.rounds.flatMap(r => [...r.t1, ...r.t2])))];
+  const st = {}, trail = {}, played = {};
+  roster.forEach(n => {
+    st[n] = { mu: 0, phi: GL.rd0 / GL.scale, sigma: GL.sig0 };
+    trail[n] = []; played[n] = 0;
+  });
+  rated.forEach(s => {
+    const res = {};
+    roster.forEach(n => (res[n] = []));
+    s.rounds.forEach(r => {
+      [0, 1].forEach(side => {
+        const mine = side ? r.t2 : r.t1, theirs = side ? r.t1 : r.t2;
+        const my = side ? r.s2 : r.s1, their = side ? r.s1 : r.s2;
+        const sc = my > their ? 1 : my < their ? 0 : 0.5;
+        mine.forEach(me => {
+          const mate = mine.find(x => x !== me);
+          const muOpp = (st[theirs[0]].mu + st[theirs[1]].mu) / 2;
+          const phiOpp = Math.sqrt(st[theirs[0]].phi * st[theirs[0]].phi
+                                 + st[theirs[1]].phi * st[theirs[1]].phi) / 2;
+          res[me].push({ muOpp, phiOpp, s: sc, E: gExp((st[me].mu + st[mate].mu) / 2, muOpp, phiOpp) });
+        });
+      });
+    });
+    const next = {};
+    roster.forEach(n => (next[n] = glickoStep(st[n], res[n])));
+    roster.forEach(n => {
+      st[n] = next[n];
+      played[n] += res[n].length;
+      trail[n].push({ short: s.short, label: s.label, games: res[n].length,
+                      r: GL.scale * st[n].mu + GL.base, rd: GL.scale * st[n].phi, sigma: st[n].sigma });
+    });
+  });
+  const table = roster.map(n => ({
+    name: n, games: played[n],
+    r: GL.scale * st[n].mu + GL.base, rd: GL.scale * st[n].phi, sigma: st[n].sigma
+  })).sort((a, b) => b.r - a.r);
+  RATINGS = { rated, table, trail, games: rated.reduce((a, s) => a + s.rounds.length, 0) };
+  return RATINGS;
+}
+// Probability the first player's side wins, accounting for both uncertainties.
+const winProb = (a, b) => gExp(
+  (a.r - GL.base) / GL.scale, (b.r - GL.base) / GL.scale,
+  Math.sqrt(a.rd * a.rd + b.rd * b.rd) / GL.scale);
+
 const pct = v => (v * 100).toFixed(1) + "%";
 const sgn = v => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(2);
 
@@ -561,6 +693,7 @@ function diffBar(v, max) {
 /* ---------- render ---------- */
 function render() {
   SESSIONS = DATA.sessions;
+  const G = ratings();
   const facts = SESSIONS.map(sessionFacts);
   const games = facts.reduce((a, f) => a + f.games, 0);
   const names = new Set();
@@ -612,6 +745,7 @@ function render() {
   DATA.players.forEach(p => { stories[p.name] = p; });
   document.getElementById("pcards").innerHTML = rows.map((r, i) => {
     const st = stories[r.name] || {};
+    const rt = G.table.find(x => x.name === r.name);
     return `<button class="pcard" onclick="openPlayer('${esc(r.name)}')" aria-haspopup="dialog">
       <div class="pcard-top">
         <span class="pcard-id">
@@ -624,7 +758,7 @@ function render() {
         <div><span class="k">Record</span><span class="v">${r.w}–${r.l}</span></div>
         <div><span class="k">Win%</span><span class="v">${pct(r.winPct)}</span></div>
         <div><span class="k">Diff/gm</span><span class="v ${r.diff >= 0 ? "pos" : "neg"}">${sgn(r.diff)}</span></div>
-        <div><span class="k">Sessions</span><span class="v">${r.sessions}</span></div>
+        <div><span class="k">Rating</span><span class="v">${rt ? Math.round(rt.r) : "&mdash;"}</span></div>
       </div>
       <div class="pcard-form">
         <span class="lbl">Form</span>${sparkline(r.trail)}
@@ -648,6 +782,98 @@ function render() {
       <td class="${r.diff >= 0 ? "pos" : "neg"}">${sgn(r.diff)}</td>
       <td class="l">${diffBar(r.diff, maxAbs)}</td>
     </tr>`).join("");
+
+  const unrated = SESSIONS.length - G.rated.length;
+  document.getElementById("ratingNote").textContent =
+    G.games + " rated games · " + G.rated.length +
+    (G.rated.length === 1 ? " session" : " sessions") + " with a match log" +
+    (unrated ? " · " + unrated + " older " + (unrated === 1 ? "session has" : "sessions have") + " none" : "");
+
+  const lo = Math.min.apply(null, G.table.map(p => p.r - 1.96 * p.rd));
+  const hi = Math.max.apply(null, G.table.map(p => p.r + 1.96 * p.rd));
+  const at = v => ((v - lo) / (hi - lo)) * 100;
+  document.getElementById("ratingRows").innerHTML = G.table.map((p, i) => `
+    <tr>
+      <td class="l who"><span class="rk">${i + 1}</span>&nbsp; ${esc(p.name)}</td>
+      <td>${Math.round(p.r)}</td>
+      <td class="l rng">${Math.round(p.r - 1.96 * p.rd)} – ${Math.round(p.r + 1.96 * p.rd)}</td>
+      <td>${Math.round(p.rd)}</td>
+      <td>${p.sigma.toFixed(4)}</td>
+      <td>${p.games}</td>
+      <td class="l"><span class="rbar" aria-hidden="true">
+        <i style="left:${at(p.r - 1.96 * p.rd).toFixed(1)}%;width:${(at(p.r + 1.96 * p.rd) - at(p.r - 1.96 * p.rd)).toFixed(1)}%"></i>
+        <b style="left:${at(p.r).toFixed(1)}%"></b></span></td>
+    </tr>`).join("");
+
+  const top = G.table[0], bot = G.table[G.table.length - 1];
+  const pairs = [];
+  for (let i = 0; i < G.table.length; i++)
+    for (let j = i + 1; j < G.table.length; j++)
+      if (G.table[i].r - 1.96 * G.table[i].rd > G.table[j].r + 1.96 * G.table[j].rd)
+        pairs.push(G.table[i].name + " above " + G.table[j].name);
+  const totalPairs = (G.table.length * (G.table.length - 1)) / 2;
+  const volSpread = G.table.map(p => p.sigma);
+
+  document.getElementById("ratingExplain").innerHTML = `
+    <div>
+      <h4>What these three numbers mean</h4>
+      <p>Glicko-2 tracks a player as a probability distribution rather than a single figure. Every
+      result nudges all three parts of it, and each one answers a different question.</p>
+    </div>
+    <div class="defs">
+      <div>
+        <h4>Rating</h4>
+        <p>The estimate of playing strength, on the familiar Elo-like scale where
+        <code>1500</code> is the starting point for someone unknown. A gap of roughly
+        <code>400</code> points means the stronger player wins about nine times in ten.
+        On current numbers ${esc(top.name)} beats ${esc(bot.name)}
+        about ${pct(winProb(top, bot))} of the time.</p>
+      </div>
+      <div>
+        <h4>RD — rating deviation</h4>
+        <p>How unsure the rating is, as a standard deviation. The true rating sits inside
+        <code>rating ± 2 × RD</code> about 95% of the time — the range in the table. Everyone starts at
+        <code>350</code>, which is complete ignorance. Playing shrinks it; sitting out grows it again,
+        so a rating that has not been tested lately is quietly marked as stale.</p>
+      </div>
+      <div>
+        <h4>Volatility</h4>
+        <p>How erratic the player is — the degree to which their results swing beyond what the
+        rating and RD would predict. It starts at <code>0.06</code> and only shifts when someone
+        repeatedly does something the model did not expect. A steady player drifts down toward
+        <code>0.03</code>; someone who beats the top seed one week and loses to the bottom the next
+        climbs toward <code>0.10</code>, which makes their rating move faster in future.</p>
+      </div>
+    </div>
+    <div>
+      <h4>How much to trust this yet</h4>
+      <p>Not much, and the numbers say so themselves. These come from
+      ${G.games} games across ${G.rated.length} ${G.rated.length === 1 ? "session" : "sessions"} — the
+      only ${G.rated.length === 1 ? "one" : "ones"} with a match log, since the algorithm needs
+      individual results rather than session totals.
+      ${unrated ? "The " + unrated + " earlier " + (unrated === 1 ? "session is" : "sessions are") +
+        " invisible to it, so a player's rating and their standings position can disagree sharply." : ""}
+      Every RD is still near ${Math.round(G.table.reduce((a, p) => a + p.rd, 0) / G.table.length)},
+      meaning each rating carries a 95% range about
+      ${Math.round(G.table.reduce((a, p) => a + 3.92 * p.rd, 0) / G.table.length)} points wide.
+      Of the ${totalPairs} possible pairings, ${pairs.length === 0 ? "none are" :
+        pairs.length + (pairs.length === 1 ? " is" : " are")} separated with any confidence${
+        pairs.length ? " (" + esc(pairs.join(", ")) + ")" : ""}. Treat the order as a first guess.</p>
+      <p>Volatility currently spans ${volSpread.every(v => Math.abs(v - GL.sig0) < 0.002)
+        ? "essentially nothing — every player is still within a rounding error of the " +
+          GL.sig0 + " default. That figure needs many rating periods before it says anything real, " +
+          "so it is shown for completeness rather than because it is informative yet"
+        : volSpread.map(v => v.toFixed(4)).join(" to ")}.</p>
+    </div>
+    <div>
+      <h4>The doubles caveat</h4>
+      <p>Glicko-2 was designed for one-on-one games. Here each match is scored by collapsing the
+      opposing pair into one virtual opponent and taking the expected result from the two team
+      averages, so a win alongside a strong partner is worth less than the same win alongside a weak
+      one. That adaptation is a reasonable convention, not part of Glickman's published system, and
+      it is the shakiest assumption in this table. Margin of victory is ignored entirely — a 21–19
+      and a 21–8 move the numbers identically.</p>
+    </div>`;
 
   document.getElementById("cards").innerHTML = SESSIONS.map((s, i) => {
     const f = facts[i], top = f.players[0];
@@ -735,6 +961,9 @@ function openPlayer(name) {
   const h = history(name);
   lastFocus = document.activeElement;
 
+  const G = ratings();
+  const rate = G.table.find(x => x.name === name);
+  const rtrail = G.trail[name];
   const story = (DATA.players.find(p => p.name === name) || {}).story;
 
   const bySession = SESSIONS.map(s => {
@@ -769,6 +998,28 @@ function openPlayer(name) {
            ["Diff/gm", sgn(row.diff)], ["Sessions", row.sessions + " of " + SESSIONS.length]]
           .map(([k, v]) => `<div class="fact"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div></div>`).join("")}
       </div>
+
+      ${rate ? `
+        <div>
+          <p class="subhead">Glicko-2 rating &middot; provisional</p>
+          <div class="facts">
+            ${[["Rating", Math.round(rate.r)],
+               ["95% range", Math.round(rate.r - 1.96 * rate.rd) + "–" + Math.round(rate.r + 1.96 * rate.rd)],
+               ["RD", Math.round(rate.rd)],
+               ["Volatility", rate.sigma.toFixed(4)],
+               ["Rated games", rate.games]]
+              .map(([k, v]) => `<div class="fact"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div></div>`).join("")}
+          </div>
+          <div class="log" style="margin-top:10px">
+            ${(rtrail || []).map(t => `
+              <div class="logrow">
+                <span class="sc">${Math.round(t.r)}</span>
+                <span class="mt">${t.games ? "after " + t.games + (t.games === 1 ? " game" : " games")
+                  : "did not play — rating held, uncertainty grew"}</span>
+                <span class="rd">${esc(t.short)} &middot; RD ${Math.round(t.rd)}</span>
+              </div>`).join("")}
+          </div>
+        </div>` : ""}
 
       <div>
         <p class="subhead">Session by session</p>

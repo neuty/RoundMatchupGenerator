@@ -60,6 +60,27 @@ without it still contribute to every standings-based figure; the player card say
 sessions have match detail. The build recomputes W/L/F/A from `rounds` and fails if it
 disagrees with that session's `players` totals.
 
+## Glicko-2 ratings
+
+Computed in the template at render time from `rounds`, so they update themselves when a
+session is added — nothing rating-related is stored in the payload.
+
+- **One rating period per session.** Glickman suggests sizing a period so players average
+  10–15 games; these run 4–7, which mostly shows up as a higher RD.
+- **Sessions without `rounds` are invisible to the ratings.** The algorithm needs
+  individual results, not session totals, so the three standings-only sessions contribute
+  nothing. A player's rating and their standings rank can disagree, and that is expected.
+- **Doubles adaptation.** Glicko-2 is a one-on-one system. Each match collapses the
+  opposing pair into one virtual opponent (mean μ, standard error of that mean for φ), and
+  the expected score comes from the two team averages so a win with a strong partner is
+  worth less. This is a convention, not part of the published system.
+- **Margin is ignored**, as the algorithm specifies — 21–19 and 21–8 move ratings equally.
+- Constants are Glickman's defaults: start 1500 / RD 350 / volatility 0.06, τ = 0.5.
+
+`analysis-src/glicko-check.js` re-implements the maths independently, verifies it against
+the worked example in Glickman's paper, and diffs its output against the template's. Run it
+after touching any rating code.
+
 ## Where the prose lives
 
 The front page carries only the latest-session recap and the `trends` cards. Anything
