@@ -108,6 +108,26 @@ about an individual belongs in that player's `story`, not in `trends`.
 A new session usually contradicts existing copy — a streak breaks, a "never" stops being
 true. Reread all of it after adding data rather than only appending.
 
+## Voice
+
+**Every reader-facing string on the page is written in a dry, slightly unhinged Australian
+voice.** That covers the player stories, the recap, the trend cards, section notes, the gate
+copy, the footer and the rating explainers — and anything new added later. Wry, deadpan,
+happy to sledge gently; Australian idiom used naturally rather than laid on with a trowel;
+short punchy closers. Never neutral match reporting.
+
+Two limits:
+
+- **Definitions stay plain.** Explaining what skill, σ, volatility or point ratio actually
+  mean is where clarity beats comedy. The voice goes in the caveats around them.
+- **Accuracy is never traded for a joke.** Every figure reconciles against `payload.json`.
+  If a line is funnier when wrong, the line goes.
+
+Prose no reader sees — code comments, this file, commit messages — stays plain.
+
+The voice drifts. Copy written alongside a technical change tends to come out flat, so read
+anything new back against the existing player cards before shipping.
+
 ## Conventions carried over from the app
 
 - Draws are placeholders and are excluded; games played is `W + L`.
