@@ -31,6 +31,20 @@ Writes `analysis.html` at the repo root (what GitHub Pages serves) and
 `analysis-src/session-analysis.html` (same page without the doctype/head wrapper, for
 publishing as an artifact). Exits non-zero if a player name reaches either output.
 
+## Payload shape
+
+Each session carries `players` (the Scorecard standings) and, from 15 August 2026 on, an
+optional `rounds` array taken from the Rounds export:
+
+```json
+{ "r": 1, "t1": ["A", "B"], "s1": 18, "t2": ["C", "D"], "s2": 21, "rest": ["E", "F"] }
+```
+
+`rounds` is stored but not yet rendered — the template still derives everything from
+`players`. It is captured now so the per-match and partnership views have data to work
+with once enough sessions have it. Where a session has both, `rounds` must reconcile
+exactly against that session's `players` totals.
+
 ## Conventions carried over from the app
 
 - Draws are placeholders and are excluded; games played is `W + L`.

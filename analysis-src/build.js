@@ -67,7 +67,11 @@ ${body}</body>
 `);
 
 // Guard: any player name reaching an output file would defeat the whole exercise.
-const names = payload.sessions.flatMap(s => s.players.map(p => p.name));
+// Rounds are included as well as standings — a name can appear there and nowhere else.
+const names = payload.sessions.flatMap(s => [
+  ...s.players.map(p => p.name),
+  ...(s.rounds || []).flatMap(r => [...r.t1, ...r.t2, ...(r.rest || [])])
+]);
 const leaked = [...new Set(names)].filter(n =>
   [path.join(DIR, 'session-analysis.html'), path.join(DIR, '..', 'analysis.html')]
     .some(f => fs.readFileSync(f, 'utf8').includes(n)));

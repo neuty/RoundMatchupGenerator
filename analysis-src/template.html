@@ -268,7 +268,7 @@
     </div>
     <div class="eyebrow">Protected</div>
     <h1>Session analysis</h1>
-    <p>Three doubles scorecards, 20 June to 8 August 2026. Say the magic word and it will all come out.</p>
+    <p>Four doubles scorecards, 20 June to 15 August 2026. Say the magic word and it will all come out.</p>
     <form class="gate-form" id="gateForm">
       <input type="password" id="pw" placeholder="PASSPHRASE" autocomplete="off" spellcheck="false" aria-label="Passphrase">
       <button type="submit">Unlock</button>
@@ -288,7 +288,7 @@
     <section>
       <div class="sec-head">
         <h2>What the numbers reckon</h2>
-        <span class="note">Eight findings, biggest carry-on first</span>
+        <span class="note" id="findingsNote"></span>
       </div>
       <div class="findings" id="findings"></div>
     </section>
@@ -296,7 +296,7 @@
     <section>
       <div class="sec-head">
         <h2>Combined standings</h2>
-        <span class="note">All three sessions &middot; Trend is win rate by session &middot; Pt ratio is F &divide; (F + A)</span>
+        <span class="note"><span id="combinedNote"></span> &middot; Trend is win rate by session &middot; Pt ratio is F &divide; (F + A)</span>
       </div>
       <div class="tbl-wrap">
         <table>
@@ -454,9 +454,15 @@ function render() {
   const leader = rows[0];
   const widest = rows.slice().sort((a, b) => b.diff - a.diff)[0];
 
+  const everPresent = rows.filter(r => r.sessions === SESSIONS.length).length;
+
+  document.getElementById("findingsNote").textContent =
+    DATA.insights.length + " findings, biggest carry-on first";
+  document.getElementById("combinedNote").textContent = "All " + SESSIONS.length + " sessions";
+
   document.getElementById("tiles").innerHTML = [
-    ["Games decided", games, "across 3 sessions"],
-    ["Players", names.size, "3 played every session"],
+    ["Games decided", games, "across " + SESSIONS.length + " sessions"],
+    ["Players", names.size, everPresent + " played every session"],
     ["Best win rate", pct(leader.winPct), leader.name + ", " + leader.w + "–" + leader.l],
     ["Widest margin", sgn(widest.diff), "points per game, " + widest.name]
   ].map(([k, v, s]) =>
