@@ -19,6 +19,35 @@ function mulberry32(a) {
 }
 
 const payload = JSON.parse(fs.readFileSync(path.join(DIR, 'payload.json'), 'utf8'));
+
+// The page renders prose straight from the payload; a missing key is a blank
+// section rather than an error, so fail the build instead of shipping a hole.
+for (const key of ['sessions', 'latest', 'trends', 'players']) {
+  if (!payload[key]) { console.error('payload is missing "' + key + '"'); process.exit(1); }
+}
+const roster = [...new Set(payload.sessions.flatMap(s => s.players.map(p => p.name)))];
+const storyless = roster.filter(n => !payload.players.some(p => p.name === n));
+if (storyless.length) { console.error('NO PLAYER CARD FOR:', storyless); process.exit(1); }
+const orphans = payload.players.filter(p => !roster.includes(p.name)).map(p => p.name);
+if (orphans.length) { console.error('PLAYER CARD WITH NO DATA:', orphans); process.exit(1); }
+
+// Rounds, where present, must agree with the standings they sit beside.
+for (const s of payload.sessions.filter(x => x.rounds)) {
+  const tally = {};
+  for (const r of s.rounds) {
+    const [win, lose, hi, lo] = r.s1 > r.s2 ? [r.t1, r.t2, r.s1, r.s2] : [r.t2, r.t1, r.s2, r.s1];
+    const touch = n => tally[n] || (tally[n] = { w: 0, l: 0, f: 0, a: 0 });
+    win.forEach(n => { const t = touch(n); t.w++; t.f += hi; t.a += lo; });
+    lose.forEach(n => { const t = touch(n); t.l++; t.f += lo; t.a += hi; });
+  }
+  for (const p of s.players) {
+    const t = tally[p.name];
+    if (!t || t.w !== p.w || t.l !== p.l || t.f !== p.f || t.a !== p.a) {
+      console.error('ROUNDS DO NOT MATCH STANDINGS:', s.id, p.name, 'standings', p, 'rounds', t);
+      process.exit(1);
+    }
+  }
+}
 const plain = 'RMG1' + JSON.stringify(payload);
 const bytes = new TextEncoder().encode(plain);
 const rnd = mulberry32(fnv1a(PASS));

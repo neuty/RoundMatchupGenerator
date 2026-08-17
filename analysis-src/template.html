@@ -201,6 +201,67 @@
     font-family:var(--mono); font-size:10px; letter-spacing:.08em; color:var(--warn);
   }
 
+  /* ---------- latest ---------- */
+  .latest {
+    background:var(--surface); border:1px solid var(--border); border-radius:12px;
+    padding:20px 22px; display:flex; flex-direction:column; gap:14px;
+  }
+  .latest h3 { font-size:18px; font-weight:640; margin:0; letter-spacing:-.015em; text-wrap:balance; }
+  .latest p { margin:0; font-size:14px; color:var(--muted); line-height:1.65; }
+  .strip { display:flex; flex-wrap:wrap; gap:8px; }
+  .pill {
+    font-family:var(--mono); font-size:11px; letter-spacing:.03em; padding:4px 10px;
+    border-radius:999px; border:1px solid var(--border-strong); background:var(--surface-2); color:var(--muted);
+  }
+  .pill b { color:var(--text); font-weight:600; }
+
+  /* ---------- players ---------- */
+  .pcards { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(330px,100%),1fr)); gap:12px; }
+  .pcard {
+    text-align:left; font-family:var(--sans); color:var(--text); cursor:pointer;
+    background:var(--surface); border:1px solid var(--border); border-radius:12px;
+    padding:18px; display:flex; flex-direction:column; gap:13px;
+    transition:border-color .18s ease, transform .18s ease, box-shadow .18s ease;
+  }
+  .pcard:hover { border-color:var(--accent); transform:translateY(-2px); box-shadow:var(--shadow); }
+  .pcard-top { display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
+  .pcard-id { display:flex; align-items:baseline; gap:9px; }
+  .pcard-name { font-size:17.5px; font-weight:650; letter-spacing:-.018em; }
+  .pcard-stats { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
+  .pcard-stats div { display:flex; flex-direction:column; gap:1px; }
+  .pcard-stats .k { font-family:var(--mono); font-size:9.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); }
+  .pcard-stats .v { font-family:var(--mono); font-size:15.5px; font-variant-numeric:tabular-nums; }
+  .pcard-story { margin:0; font-size:13.5px; color:var(--muted); line-height:1.6; }
+  .pcard-form { display:flex; align-items:center; gap:9px; }
+  .pcard-form .lbl { font-family:var(--mono); font-size:9.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--faint); }
+
+  /* ---------- match log ---------- */
+  .subhead {
+    font-family:var(--mono); font-size:10px; letter-spacing:.12em; text-transform:uppercase;
+    color:var(--muted); margin:0 0 9px;
+  }
+  .log { display:flex; flex-direction:column; gap:6px; }
+  .logrow {
+    display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;
+    font-size:12.5px; padding:8px 11px; background:var(--surface-2);
+    border:1px solid var(--border); border-radius:9px;
+  }
+  .wl {
+    font-family:var(--mono); font-size:10px; font-weight:700; letter-spacing:.04em;
+    padding:2px 6px; border-radius:4px; border:1px solid; flex:none;
+  }
+  .wl.w { color:var(--pos); background:var(--pos-soft); border-color:var(--pos); }
+  .wl.l { color:var(--neg); background:var(--neg-soft); border-color:var(--neg); }
+  .logrow .sc { font-family:var(--mono); font-variant-numeric:tabular-nums; font-weight:600; flex:none; }
+  .logrow .mt { color:var(--muted); }
+  .logrow .rd { font-family:var(--mono); font-size:10.5px; color:var(--faint); margin-left:auto; flex:none; }
+  .duos { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(240px,100%),1fr)); gap:14px; }
+  .duo { display:flex; flex-direction:column; gap:5px; }
+  .duorow { display:flex; align-items:baseline; gap:8px; font-size:13px; }
+  .duorow .nm { flex:1; }
+  .duorow .rec { font-family:var(--mono); font-variant-numeric:tabular-nums; font-size:12.5px; }
+  .thin { font-size:12.5px; color:var(--faint); line-height:1.55; margin:0; }
+
   /* ---------- modal ---------- */
   .veil {
     position:fixed; inset:0; background:rgba(8,15,10,.62); backdrop-filter:blur(3px);
@@ -287,10 +348,26 @@
 
     <section>
       <div class="sec-head">
-        <h2>What the numbers reckon</h2>
-        <span class="note" id="findingsNote"></span>
+        <h2>Latest session</h2>
+        <span class="note" id="latestNote"></span>
       </div>
-      <div class="findings" id="findings"></div>
+      <div class="latest" id="latest"></div>
+    </section>
+
+    <section>
+      <div class="sec-head">
+        <h2>Where it is all heading</h2>
+        <span class="note" id="trendsNote"></span>
+      </div>
+      <div class="findings" id="trends"></div>
+    </section>
+
+    <section>
+      <div class="sec-head">
+        <h2>The players</h2>
+        <span class="note">Give one a poke for their full match history</span>
+      </div>
+      <div class="pcards" id="pcards"></div>
     </section>
 
     <section>
@@ -413,6 +490,31 @@ function combined() {
   return Object.values(m).map(withDerived).sort((x, y) => y.winPct - x.winPct || y.diff - x.diff);
 }
 
+/* Per-player match history, derived from the rounds exports. Only some sessions
+   carry one, so every consumer has to cope with a partial or empty history. */
+function history(name) {
+  const log = [], mates = {}, foes = {};
+  const bump = (bag, who, won) => {
+    const rec = bag[who] || (bag[who] = { w: 0, l: 0 });
+    rec[won ? "w" : "l"]++;
+  };
+  SESSIONS.forEach(s => (s.rounds || []).forEach(r => {
+    const mine = r.t1.includes(name) ? r.t1 : r.t2.includes(name) ? r.t2 : null;
+    if (!mine) return;
+    const first = mine === r.t1;
+    const theirs = first ? r.t2 : r.t1;
+    const my = first ? r.s1 : r.s2, their = first ? r.s2 : r.s1;
+    const won = my > their, mate = mine.find(x => x !== name);
+    bump(mates, mate, won);
+    theirs.forEach(o => bump(foes, o, won));
+    log.push({ session: s.short, round: r.r, won, my, their, mate, foes: theirs });
+  }));
+  return { log, mates, foes, sessions: SESSIONS.filter(s => s.rounds).length };
+}
+const byRecord = bag => Object.entries(bag)
+  .map(([name, r]) => ({ name, ...r, gp: r.w + r.l, rate: r.w / (r.w + r.l) }))
+  .sort((a, b) => b.rate - a.rate || b.gp - a.gp);
+
 const pct = v => (v * 100).toFixed(1) + "%";
 const sgn = v => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(2);
 
@@ -456,8 +558,8 @@ function render() {
 
   const everPresent = rows.filter(r => r.sessions === SESSIONS.length).length;
 
-  document.getElementById("findingsNote").textContent =
-    DATA.insights.length + " findings, biggest carry-on first";
+  document.getElementById("trendsNote").textContent =
+    DATA.trends.length + " things the whole dataset is saying";
   document.getElementById("combinedNote").textContent = "All " + SESSIONS.length + " sessions";
 
   document.getElementById("tiles").innerHTML = [
@@ -469,12 +571,56 @@ function render() {
     `<div class="tile"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div><div class="s">${esc(s)}</div></div>`
   ).join("");
 
-  document.getElementById("findings").innerHTML = DATA.insights.map(i => `
+  const lastIdx = SESSIONS.length - 1;
+  const lastSes = SESSIONS[lastIdx], lastFacts = facts[lastIdx];
+  document.getElementById("latestNote").textContent =
+    lastSes.label + " · " + lastSes.time;
+  document.getElementById("latest").innerHTML = `
+    <div>
+      <h3>${esc(DATA.latest.headline)}</h3>
+    </div>
+    <div class="strip">
+      ${[["Games", lastFacts.games], ["Players", lastSes.players.length],
+         ["Won by", lastFacts.players[0].name + " " + lastFacts.players[0].w + "–" + lastFacts.players[0].l],
+         ["Spread", lastFacts.spread.toFixed(2)]]
+        .map(([k, v]) => `<span class="pill">${esc(k)} <b>${esc(v)}</b></span>`).join("")}
+      <button class="pill" onclick="openSession(${lastIdx})" style="cursor:pointer">Full match card &rarr;</button>
+    </div>
+    <p>${esc(DATA.latest.body)}</p>`;
+
+  document.getElementById("trends").innerHTML = DATA.trends.map(i => `
     <article class="finding">
       <span class="chip ${esc(i.tone)}">${esc(i.chip)}</span>
       <h3>${esc(i.title)}</h3>
       <p>${esc(i.body)}</p>
     </article>`).join("");
+
+  const stories = {};
+  DATA.players.forEach(p => { stories[p.name] = p; });
+  document.getElementById("pcards").innerHTML = rows.map((r, i) => {
+    const st = stories[r.name] || {};
+    return `<button class="pcard" onclick="openPlayer('${esc(r.name)}')" aria-haspopup="dialog">
+      <div class="pcard-top">
+        <span class="pcard-id">
+          <span class="rk">${i + 1}</span>
+          <span class="pcard-name">${esc(r.name)}</span>
+        </span>
+        ${st.tag ? `<span class="chip ${esc(st.tone || "neutral")}">${esc(st.tag)}</span>` : ""}
+      </div>
+      <div class="pcard-stats">
+        <div><span class="k">Record</span><span class="v">${r.w}–${r.l}</span></div>
+        <div><span class="k">Win%</span><span class="v">${pct(r.winPct)}</span></div>
+        <div><span class="k">Diff/gm</span><span class="v ${r.diff >= 0 ? "pos" : "neg"}">${sgn(r.diff)}</span></div>
+        <div><span class="k">Sessions</span><span class="v">${r.sessions}</span></div>
+      </div>
+      <div class="pcard-form">
+        <span class="lbl">Form</span>${sparkline(r.trail)}
+        <span class="lbl">${esc(SESSIONS[0].short)} &rarr; ${esc(SESSIONS[SESSIONS.length - 1].short)}</span>
+      </div>
+      ${st.story ? `<p class="pcard-story">${esc(st.story)}</p>` : ""}
+      <div class="scard-cta">Full history <span aria-hidden="true">&rarr;</span></div>
+    </button>`;
+  }).join("");
 
   const maxAbs = Math.max.apply(null, rows.map(r => Math.abs(r.diff)));
   document.getElementById("combined").innerHTML = rows.map((r, i) => `
@@ -492,7 +638,7 @@ function render() {
 
   document.getElementById("cards").innerHTML = SESSIONS.map((s, i) => {
     const f = facts[i], top = f.players[0];
-    return `<button class="scard" onclick="openCard(${i})" aria-haspopup="dialog">
+    return `<button class="scard" onclick="openSession(${i})" aria-haspopup="dialog">
       <div class="scard-top">
         <span class="scard-date">${esc(s.label)}</span>
         <span class="scard-seed">${esc(s.seed)}</span>
@@ -513,12 +659,20 @@ function render() {
 /* ---------- match card ---------- */
 let lastFocus = null;
 
-function openCard(i) {
+function showSheet(html) {
+  document.getElementById("sheet").innerHTML = html;
+  const veil = document.getElementById("veil");
+  veil.classList.add("on");
+  document.body.style.overflow = "hidden";
+  veil.querySelector(".x").focus();
+}
+
+function openSession(i) {
   const s = SESSIONS[i], f = sessionFacts(s);
   const maxAbs = Math.max.apply(null, f.players.map(p => Math.abs(p.diff)));
   lastFocus = document.activeElement;
 
-  document.getElementById("sheet").innerHTML = `
+  showSheet(`
     <div class="sheet-head">
       <div>
         <div class="eyebrow">Match card</div>
@@ -557,12 +711,105 @@ function openCard(i) {
             </tr>`).join("")}</tbody>
         </table>
       </div>
-    </div>`;
+    </div>`);
+}
 
-  const veil = document.getElementById("veil");
-  veil.classList.add("on");
-  document.body.style.overflow = "hidden";
-  veil.querySelector(".x").focus();
+/* ---------- player history ---------- */
+function openPlayer(name) {
+  const table = combined();
+  const rank = table.findIndex(p => p.name === name) + 1;
+  const row = table[rank - 1];
+  const h = history(name);
+  lastFocus = document.activeElement;
+
+  const story = (DATA.players.find(p => p.name === name) || {}).story;
+
+  const bySession = SESSIONS.map(s => {
+    const raw = s.players.find(p => p.name === name);
+    return { s, p: raw ? withDerived(raw) : null };
+  });
+
+  const duo = (bag, empty) => {
+    const list = byRecord(bag);
+    if (!list.length) return `<p class="thin">${empty}</p>`;
+    return `<div class="duo">${list.map(d => `
+      <div class="duorow">
+        <span class="nm">${esc(d.name)}</span>
+        <span class="rec ${d.w > d.l ? "pos" : d.w < d.l ? "neg" : ""}">${d.w}–${d.l}</span>
+      </div>`).join("")}</div>`;
+  };
+
+  showSheet(`
+    <div class="sheet-head">
+      <div>
+        <div class="eyebrow">Player history</div>
+        <h3 id="sheetTitle">${esc(name)}</h3>
+        <div class="sub">#${rank} overall &middot; ${row.w}–${row.l} &middot; ${pct(row.winPct)} &middot; ${sgn(row.diff)} a game</div>
+      </div>
+      <button class="x" onclick="closeCard()" aria-label="Close">&times;</button>
+    </div>
+    <div class="sheet-body">
+      ${story ? `<p style="margin:0;font-size:14px;line-height:1.65;color:var(--muted)">${esc(story)}</p>` : ""}
+
+      <div class="facts">
+        ${[["Games", row.gp], ["Win rate", pct(row.winPct)], ["Pt ratio", pct(row.ptRatio)],
+           ["Diff/gm", sgn(row.diff)], ["Sessions", row.sessions + " of " + SESSIONS.length]]
+          .map(([k, v]) => `<div class="fact"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div></div>`).join("")}
+      </div>
+
+      <div>
+        <p class="subhead">Session by session</p>
+        <div class="tbl-wrap">
+          <table style="min-width:0">
+            <thead><tr>
+              <th class="l">Session</th><th>W</th><th>L</th><th>Win%</th><th>F</th><th>A</th><th>Diff/gm</th>
+            </tr></thead>
+            <tbody>${bySession.map(({ s, p }) => p ? `
+              <tr>
+                <td class="l who">${esc(s.label)}</td>
+                <td>${p.w}</td><td>${p.l}</td>
+                <td>${pct(p.winPct)}</td>
+                <td>${p.f}</td><td>${p.a}</td>
+                <td class="${p.diff >= 0 ? "pos" : "neg"}">${sgn(p.diff)}</td>
+              </tr>` : `
+              <tr>
+                <td class="l who" style="color:var(--faint)">${esc(s.label)}</td>
+                <td colspan="6" class="l" style="color:var(--faint);font-size:12px">did not play</td>
+              </tr>`).join("")}</tbody>
+          </table>
+        </div>
+      </div>
+
+      ${h.log.length ? `
+        <div>
+          <p class="subhead">Partners and opponents &middot; ${h.log.length} logged ${h.log.length === 1 ? "match" : "matches"}</p>
+          <div class="duos">
+            <div>
+              <p class="subhead" style="color:var(--faint)">Alongside</p>
+              ${duo(h.mates, "")}
+            </div>
+            <div>
+              <p class="subhead" style="color:var(--faint)">Against</p>
+              ${duo(h.foes, "")}
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <p class="subhead">Every logged match</p>
+          <div class="log">${h.log.map(m => `
+            <div class="logrow">
+              <span class="wl ${m.won ? "w" : "l"}">${m.won ? "W" : "L"}</span>
+              <span class="sc">${m.my}–${m.their}</span>
+              <span class="mt">with ${esc(m.mate)} &middot; v ${esc(m.foes.join(" & "))}</span>
+              <span class="rd">${esc(m.session)} R${m.round}</span>
+            </div>`).join("")}</div>
+          <p class="thin" style="margin-top:9px">Match detail comes from the Rounds export, which only
+            ${h.sessions} of the ${SESSIONS.length} sessions have. The session table above covers all of them.</p>
+        </div>` : `
+        <p class="thin">No match-by-match detail for this player — none of the sessions they played
+          have a Rounds export. The session table above is everything on record.</p>`}
+    </div>`);
 }
 
 function closeCard() {

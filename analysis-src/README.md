@@ -33,17 +33,40 @@ publishing as an artifact). Exits non-zero if a player name reaches either outpu
 
 ## Payload shape
 
-Each session carries `players` (the Scorecard standings) and, from 15 August 2026 on, an
-optional `rounds` array taken from the Rounds export:
+Four top-level keys, all required — the build fails if one is missing.
+
+| Key | What it is |
+|---|---|
+| `sessions` | The data. Everything numeric on the page is derived from here. |
+| `latest` | `{ headline, body }` — the recap of the most recent session. |
+| `trends` | `[{ chip, tone, title, body }]` — dataset-wide observations, no single-player stories. |
+| `players` | `[{ name, tag, tone, story }]` — one per player, in any order. |
+
+`tone` is one of `good` / `warn` / `info` / `neutral` and only sets the chip colour.
+
+Every player appearing in any session needs an entry in `players`, and every entry needs
+a matching player — the build checks both directions and refuses to publish otherwise.
+Player cards are ordered by the standings, not by payload order.
+
+Each session carries `players` (the Scorecard standings) and, from 15 August 2026 on, a
+`rounds` array from the Rounds export:
 
 ```json
 { "r": 1, "t1": ["A", "B"], "s1": 18, "t2": ["C", "D"], "s2": 21, "rest": ["E", "F"] }
 ```
 
-`rounds` is stored but not yet rendered — the template still derives everything from
-`players`. It is captured now so the per-match and partnership views have data to work
-with once enough sessions have it. Where a session has both, `rounds` must reconcile
-exactly against that session's `players` totals.
+`rounds` drives the partner/opponent tables and match log on each player card. Sessions
+without it still contribute to every standings-based figure; the player card says which
+sessions have match detail. The build recomputes W/L/F/A from `rounds` and fails if it
+disagrees with that session's `players` totals.
+
+## Where the prose lives
+
+The front page carries only the latest-session recap and the `trends` cards. Anything
+about an individual belongs in that player's `story`, not in `trends`.
+
+A new session usually contradicts existing copy — a streak breaks, a "never" stops being
+true. Reread all of it after adding data rather than only appending.
 
 ## Conventions carried over from the app
 
