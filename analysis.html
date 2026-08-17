@@ -430,8 +430,8 @@
           <thead>
             <tr>
               <th class="l">Player</th>
-              <th>Rating</th><th class="l">95% range</th>
-              <th>RD</th><th>Volatility</th><th>Games</th><th class="l">&nbsp;</th>
+              <th>Skill</th><th class="l">95% range</th>
+              <th>&sigma;</th><th>Volatility*</th><th>Games</th><th class="l">&nbsp;</th>
             </tr>
           </thead>
           <tbody id="ratingRows"></tbody>
@@ -613,7 +613,7 @@ function glickoStep(pl, res) {
 }
 
 let RATINGS = null;
-function ratings() {
+function glickoRatings() {
   if (RATINGS) return RATINGS;
   const rated = SESSIONS.filter(s => s.rounds);
   const roster = [...new Set(rated.flatMap(s => s.rounds.flatMap(r => [...r.t1, ...r.t2])))];
@@ -655,10 +655,107 @@ function ratings() {
   RATINGS = { rated, table, trail, games: rated.reduce((a, s) => a + s.rounds.length, 0) };
   return RATINGS;
 }
-// Probability the first player's side wins, accounting for both uncertainties.
-const winProb = (a, b) => gExp(
-  (a.r - GL.base) / GL.scale, (b.r - GL.base) / GL.scale,
-  Math.sqrt(a.rd * a.rd + b.rd * b.rd) / GL.scale);
+/* ---------- TrueSkill ----------
+   The primary rating system. Unlike Glicko-2 it is built for teams: a side's
+   performance is the sum of its members', so the result is shared out among
+   them according to how uncertain each one already was. A settled player and a
+   newcomer on the same winning team do not move by the same amount.
+
+   Margin of victory is folded in as a multiplier on the mean shift only, scaled
+   by log margin and normalised so a typical game keeps a multiplier near 1. A
+   second factor damps blowouts by a side that was already favoured, so running
+   up the score against weak opposition earns progressively less. Sigma is left
+   out of that adjustment: how much a result teaches us should depend on having
+   played, not on how heavily it was won. */
+const TS = { mu0: 25, sig0: 25 / 3, beta: 25 / 6, tau: 25 / 300 };
+TS.k = 350 / TS.sig0;                    // 25 -> 1500 and sigma 350, as before
+const tsR = mu => 1500 + (mu - TS.mu0) * TS.k;
+const tsS = sig => sig * TS.k;
+
+const nPdf = x => Math.exp(-x * x / 2) / Math.sqrt(2 * Math.PI);
+// Numerical Recipes erfcc — about 1.2e-7 relative accuracy, ample here.
+function nErfc(x) {
+  const z = Math.abs(x), t = 2 / (2 + z), ty = 4 * t - 2;
+  const cof = [-1.3026537197817094, 6.4196979235649026e-1, 1.9476473204185836e-2,
+    -9.561514786808631e-3, -9.46595344482036e-4, 3.66839497852761e-4, 4.2523324806907e-5,
+    -2.0278578112534e-5, -1.624290004647e-6, 1.303655835580e-6, 1.5626441722e-8,
+    -8.5238095915e-8, 6.529054439e-9, 5.059343495e-9, -9.91364156e-10, -2.27365122e-10,
+    9.6467911e-11, 2.394038e-12, -6.886027e-12, 8.94487e-13, 3.13092e-13, -1.12708e-13,
+    3.81e-16, 7.106e-15];
+  let d = 0, dd = 0;
+  for (let j = cof.length - 1; j > 0; j--) { const tmp = d; d = ty * d - dd + cof[j]; dd = tmp; }
+  const ans = t * Math.exp(-z * z + 0.5 * (cof[0] + ty * d) - dd);
+  return x >= 0 ? ans : 2 - ans;
+}
+const nCdf = x => 0.5 * nErfc(-x / Math.SQRT2);
+function tsV(t) { const den = nCdf(t); return den < 1e-10 ? -t : nPdf(t) / den; }
+function tsW(t) {
+  const den = nCdf(t);
+  if (den < 1e-10) return t < 0 ? 1 : 0;
+  const v = nPdf(t) / den;
+  return Math.min(1, Math.max(0, v * (v + t)));
+}
+
+// One match. winners/losers are {mu, sigma}; mult scales the mean shift only.
+function tsMatch(winners, losers, mult) {
+  const all = winners.concat(losers);
+  const c2 = all.reduce((a, p) => a + p.sigma * p.sigma, 0) + all.length * TS.beta * TS.beta;
+  const c = Math.sqrt(c2);
+  const t = (winners.reduce((a, p) => a + p.mu, 0) - losers.reduce((a, p) => a + p.mu, 0)) / c;
+  const v = tsV(t), w = tsW(t), m = mult === undefined ? 1 : mult;
+  const shift = (p, dir) => ({
+    mu: p.mu + dir * m * (p.sigma * p.sigma / c) * v,
+    sigma: p.sigma * Math.sqrt(Math.max(1e-6, 1 - (p.sigma * p.sigma / c2) * w))
+  });
+  return winners.map(p => shift(p, 1)).concat(losers.map(p => shift(p, -1)));
+}
+
+let SKILLS = null;
+function skillRatings() {
+  if (SKILLS) return SKILLS;
+  const rated = SESSIONS.filter(s => s.rounds);
+  const all = rated.flatMap(s => s.rounds);
+  // Equal scores cannot occur in a race to 21, so a tie would be bad data.
+  const usable = all.filter(r => r.s1 !== r.s2);
+  const meanLog = usable.length
+    ? usable.reduce((a, r) => a + Math.log(Math.abs(r.s1 - r.s2) + 1), 0) / usable.length : 1;
+  const roster = [...new Set(all.flatMap(r => [...r.t1, ...r.t2]))];
+  const st = {}, trail = {}, played = {};
+  roster.forEach(n => {
+    st[n] = { mu: TS.mu0, sigma: TS.sig0 };
+    trail[n] = []; played[n] = 0;
+  });
+  rated.forEach(s => {
+    // Between periods, everyone's uncertainty creeps up a little.
+    roster.forEach(n => (st[n] = { mu: st[n].mu, sigma: Math.sqrt(st[n].sigma * st[n].sigma + TS.tau * TS.tau) }));
+    const before = Object.fromEntries(roster.map(n => [n, played[n]]));
+    s.rounds.forEach(r => {
+      if (r.s1 === r.s2) return;
+      const t1won = r.s1 > r.s2;
+      const wn = t1won ? r.t1 : r.t2, ln = t1won ? r.t2 : r.t1;
+      const edge = ((wn.reduce((a, n) => a + st[n].mu, 0) - ln.reduce((a, n) => a + st[n].mu, 0)) / 2) * TS.k;
+      const mult = (Math.log(Math.abs(r.s1 - r.s2) + 1) / meanLog) * (2.2 / (2.2 + 0.001 * edge));
+      const res = tsMatch(wn.map(n => st[n]), ln.map(n => st[n]), mult);
+      wn.forEach((n, i) => { st[n] = res[i]; played[n]++; });
+      ln.forEach((n, i) => { st[n] = res[wn.length + i]; played[n]++; });
+    });
+    roster.forEach(n => trail[n].push({
+      short: s.short, label: s.label, games: played[n] - before[n],
+      r: tsR(st[n].mu), sd: tsS(st[n].sigma)
+    }));
+  });
+  const table = roster.map(n => ({
+    name: n, games: played[n], r: tsR(st[n].mu), sd: tsS(st[n].sigma),
+    conservative: tsR(st[n].mu) - 3 * tsS(st[n].sigma)
+  })).sort((a, b) => b.r - a.r);
+  SKILLS = { rated, table, trail, games: usable.length, skipped: all.length - usable.length };
+  return SKILLS;
+}
+
+// Probability the first side beats the second, allowing for both uncertainties.
+const winProb = (a, b) => nCdf(
+  ((a.r - b.r) / TS.k) /
+  Math.sqrt((a.sd / TS.k) ** 2 + (b.sd / TS.k) ** 2 + 2 * TS.beta * TS.beta));
 
 const pct = v => (v * 100).toFixed(1) + "%";
 const sgn = v => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(2);
@@ -693,7 +790,9 @@ function diffBar(v, max) {
 /* ---------- render ---------- */
 function render() {
   SESSIONS = DATA.sessions;
-  const G = ratings();
+  const G = skillRatings();
+  const VOL = glickoRatings();
+  const volOf = n => { const p = VOL.table.find(x => x.name === n); return p ? p.sigma : null; };
   const facts = SESSIONS.map(sessionFacts);
   const games = facts.reduce((a, f) => a + f.games, 0);
   const names = new Set();
@@ -785,94 +884,103 @@ function render() {
 
   const unrated = SESSIONS.length - G.rated.length;
   document.getElementById("ratingNote").textContent =
-    G.games + " rated games · " + G.rated.length +
+    "TrueSkill with margin of victory · " + G.games + " rated games across " + G.rated.length +
     (G.rated.length === 1 ? " session" : " sessions") + " with a match log" +
     (unrated ? " · " + unrated + " older " + (unrated === 1 ? "session has" : "sessions have") + " none" : "");
 
-  const lo = Math.min.apply(null, G.table.map(p => p.r - 1.96 * p.rd));
-  const hi = Math.max.apply(null, G.table.map(p => p.r + 1.96 * p.rd));
+  const lo = Math.min.apply(null, G.table.map(p => p.r - 1.96 * p.sd));
+  const hi = Math.max.apply(null, G.table.map(p => p.r + 1.96 * p.sd));
   const at = v => ((v - lo) / (hi - lo)) * 100;
-  document.getElementById("ratingRows").innerHTML = G.table.map((p, i) => `
+  document.getElementById("ratingRows").innerHTML = G.table.map((p, i) => {
+    const vol = volOf(p.name);
+    return `
     <tr>
       <td class="l who"><span class="rk">${i + 1}</span>&nbsp; ${esc(p.name)}</td>
       <td>${Math.round(p.r)}</td>
-      <td class="l rng">${Math.round(p.r - 1.96 * p.rd)} – ${Math.round(p.r + 1.96 * p.rd)}</td>
-      <td>${Math.round(p.rd)}</td>
-      <td>${p.sigma.toFixed(4)}</td>
+      <td class="l rng">${Math.round(p.r - 1.96 * p.sd)} – ${Math.round(p.r + 1.96 * p.sd)}</td>
+      <td>${Math.round(p.sd)}</td>
+      <td>${vol === null ? "&mdash;" : vol.toFixed(4)}</td>
       <td>${p.games}</td>
       <td class="l"><span class="rbar" aria-hidden="true">
-        <i style="left:${at(p.r - 1.96 * p.rd).toFixed(1)}%;width:${(at(p.r + 1.96 * p.rd) - at(p.r - 1.96 * p.rd)).toFixed(1)}%"></i>
+        <i style="left:${at(p.r - 1.96 * p.sd).toFixed(1)}%;width:${(at(p.r + 1.96 * p.sd) - at(p.r - 1.96 * p.sd)).toFixed(1)}%"></i>
         <b style="left:${at(p.r).toFixed(1)}%"></b></span></td>
-    </tr>`).join("");
+    </tr>`;
+  }).join("");
 
   const top = G.table[0], bot = G.table[G.table.length - 1];
   const pairs = [];
   for (let i = 0; i < G.table.length; i++)
     for (let j = i + 1; j < G.table.length; j++)
-      if (G.table[i].r - 1.96 * G.table[i].rd > G.table[j].r + 1.96 * G.table[j].rd)
+      if (G.table[i].r - 1.96 * G.table[i].sd > G.table[j].r + 1.96 * G.table[j].sd)
         pairs.push(G.table[i].name + " above " + G.table[j].name);
   const totalPairs = (G.table.length * (G.table.length - 1)) / 2;
-  const volSpread = G.table.map(p => p.sigma);
+  const volSpread = VOL.table.map(p => p.sigma);
 
   document.getElementById("ratingExplain").innerHTML = `
     <div>
-      <h4>What these three numbers mean</h4>
-      <p>Glicko-2 tracks a player as a probability distribution rather than a single figure. Every
-      result nudges all three parts of it, and each one answers a different question.</p>
+      <h4>What these numbers mean</h4>
+      <p>Skill comes from TrueSkill, which was built for team games: a side's performance is treated
+      as the sum of its members', so one result is shared out among four people according to how
+      well each was already understood. That is what lets it tell being good apart from being
+      carried. Margin of victory is folded in as well.</p>
     </div>
     <div class="defs">
       <div>
-        <h4>Rating</h4>
-        <p>The estimate of playing strength, on the familiar Elo-like scale where
-        <code>1500</code> is the starting point for someone unknown. A gap of roughly
-        <code>400</code> points means the stronger player wins about nine times in ten.
-        On current numbers ${esc(top.name)} beats ${esc(bot.name)}
-        about ${pct(winProb(top, bot))} of the time.</p>
+        <h4>Skill</h4>
+        <p>The estimate of playing strength, placed on the familiar scale where <code>1500</code> is
+        an unknown player. On current numbers ${esc(top.name)} beats ${esc(bot.name)}
+        about ${pct(winProb(top, bot))} of the time in a head-to-head of equal partners.</p>
       </div>
       <div>
-        <h4>RD — rating deviation</h4>
-        <p>How unsure the rating is, as a standard deviation. The true rating sits inside
-        <code>rating ± 2 × RD</code> about 95% of the time — the range in the table. Everyone starts at
-        <code>350</code>, which is complete ignorance. Playing shrinks it; sitting out grows it again,
-        so a rating that has not been tested lately is quietly marked as stale.</p>
+        <h4>&sigma; — uncertainty</h4>
+        <p>How unsure the skill estimate is. The true figure sits inside
+        <code>skill ± 2σ</code> about 95% of the time — the range in the table. Everyone starts at
+        <code>350</code>; playing shrinks it, sitting out grows it back. It falls more slowly than
+        under a one-on-one system, which is correct: a shared 2v2 result tells you less about any
+        one player than a singles result would.</p>
       </div>
       <div>
-        <h4>Volatility</h4>
-        <p>How erratic the player is — the degree to which their results swing beyond what the
-        rating and RD would predict. It starts at <code>0.06</code> and only shifts when someone
-        repeatedly does something the model did not expect. A steady player drifts down toward
-        <code>0.03</code>; someone who beats the top seed one week and loses to the bottom the next
-        climbs toward <code>0.10</code>, which makes their rating move faster in future.</p>
+        <h4>Volatility*</h4>
+        <p>How <em>erratic</em> someone is, as opposed to how good — the degree to which results
+        swing beyond what skill and σ predict. TrueSkill has no equivalent, so this one column is
+        still produced by the earlier Glicko-2 model running alongside. A steady player drifts from
+        the <code>0.06</code> start down toward <code>0.03</code>; someone who beats the best one
+        week and loses to the worst the next climbs toward <code>0.10</code>.</p>
       </div>
+    </div>
+    <div>
+      <h4>How margin of victory is used</h4>
+      <p>A win still counts as a win, but the size of the move scales with
+      <code>ln(margin + 1)</code>, normalised so an ordinary game keeps a multiplier near
+      <code>1</code>. Across the ${G.games} rated games that spans roughly
+      <code>0.65×</code> for a two-point squeaker to <code>1.55×</code> for the widest thrashing. A
+      second factor shrinks the gain when the winning side was already favoured, so running up the
+      score against weak opposition pays progressively less. Only the skill estimate is scaled this
+      way — σ is left alone, because how much a result teaches us should depend on having played,
+      not on how heavily it was won.</p>
     </div>
     <div>
       <h4>How much to trust this yet</h4>
       <p>Not much, and the numbers say so themselves. These come from
       ${G.games} games across ${G.rated.length} ${G.rated.length === 1 ? "session" : "sessions"} — the
-      only ${G.rated.length === 1 ? "one" : "ones"} with a match log, since the algorithm needs
+      only ${G.rated.length === 1 ? "one" : "ones"} with a match log, since the model needs
       individual results rather than session totals.
       ${unrated ? "The " + unrated + " earlier " + (unrated === 1 ? "session is" : "sessions are") +
-        " invisible to it, so a player's rating and their standings position can disagree sharply." : ""}
-      Every RD is still near ${Math.round(G.table.reduce((a, p) => a + p.rd, 0) / G.table.length)},
-      meaning each rating carries a 95% range about
-      ${Math.round(G.table.reduce((a, p) => a + 3.92 * p.rd, 0) / G.table.length)} points wide.
+        " invisible to it, so a player's skill and their standings position can disagree sharply." : ""}
+      Every σ is still near ${Math.round(G.table.reduce((a, p) => a + p.sd, 0) / G.table.length)},
+      meaning each estimate carries a 95% range about
+      ${Math.round(G.table.reduce((a, p) => a + 3.92 * p.sd, 0) / G.table.length)} points wide.
       Of the ${totalPairs} possible pairings, ${pairs.length === 0 ? "none are" :
         pairs.length + (pairs.length === 1 ? " is" : " are")} separated with any confidence${
         pairs.length ? " (" + esc(pairs.join(", ")) + ")" : ""}. Treat the order as a first guess.</p>
       <p>Volatility currently spans ${volSpread.every(v => Math.abs(v - GL.sig0) < 0.002)
         ? "essentially nothing — every player is still within a rounding error of the " +
-          GL.sig0 + " default. That figure needs many rating periods before it says anything real, " +
-          "so it is shown for completeness rather than because it is informative yet"
+          GL.sig0 + " default. It needs many rating periods before it says anything real, so it is " +
+          "shown for completeness rather than because it is informative yet"
         : volSpread.map(v => v.toFixed(4)).join(" to ")}.</p>
-    </div>
-    <div>
-      <h4>The doubles caveat</h4>
-      <p>Glicko-2 was designed for one-on-one games. Here each match is scored by collapsing the
-      opposing pair into one virtual opponent and taking the expected result from the two team
-      averages, so a win alongside a strong partner is worth less than the same win alongside a weak
-      one. That adaptation is a reasonable convention, not part of Glickman's published system, and
-      it is the shakiest assumption in this table. Margin of victory is ignored entirely — a 21–19
-      and a 21–8 move the numbers identically.</p>
+      <p>Neither model looks at who partnered whom beyond that single match. A genuine
+      partnership effect — two people who are better together than apart — would need far more
+      games before it could be separated from luck.</p>
     </div>`;
 
   document.getElementById("cards").innerHTML = SESSIONS.map((s, i) => {
@@ -961,9 +1069,10 @@ function openPlayer(name) {
   const h = history(name);
   lastFocus = document.activeElement;
 
-  const G = ratings();
+  const G = skillRatings();
   const rate = G.table.find(x => x.name === name);
   const rtrail = G.trail[name];
+  const gv = glickoRatings().table.find(x => x.name === name);
   const story = (DATA.players.find(p => p.name === name) || {}).story;
 
   const bySession = SESSIONS.map(s => {
@@ -1001,12 +1110,12 @@ function openPlayer(name) {
 
       ${rate ? `
         <div>
-          <p class="subhead">Glicko-2 rating &middot; provisional</p>
+          <p class="subhead">TrueSkill rating &middot; provisional</p>
           <div class="facts">
-            ${[["Rating", Math.round(rate.r)],
-               ["95% range", Math.round(rate.r - 1.96 * rate.rd) + "–" + Math.round(rate.r + 1.96 * rate.rd)],
-               ["RD", Math.round(rate.rd)],
-               ["Volatility", rate.sigma.toFixed(4)],
+            ${[["Skill", Math.round(rate.r)],
+               ["95% range", Math.round(rate.r - 1.96 * rate.sd) + "–" + Math.round(rate.r + 1.96 * rate.sd)],
+               ["σ", Math.round(rate.sd)],
+               ["Volatility", gv ? gv.sigma.toFixed(4) : "—"],
                ["Rated games", rate.games]]
               .map(([k, v]) => `<div class="fact"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div></div>`).join("")}
           </div>
@@ -1015,8 +1124,8 @@ function openPlayer(name) {
               <div class="logrow">
                 <span class="sc">${Math.round(t.r)}</span>
                 <span class="mt">${t.games ? "after " + t.games + (t.games === 1 ? " game" : " games")
-                  : "did not play — rating held, uncertainty grew"}</span>
-                <span class="rd">${esc(t.short)} &middot; RD ${Math.round(t.rd)}</span>
+                  : "did not play — skill held, uncertainty grew"}</span>
+                <span class="rd">${esc(t.short)} &middot; σ ${Math.round(t.sd)}</span>
               </div>`).join("")}
           </div>
         </div>` : ""}

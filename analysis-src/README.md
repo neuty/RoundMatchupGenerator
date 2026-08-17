@@ -60,26 +60,45 @@ without it still contribute to every standings-based figure; the player card say
 sessions have match detail. The build recomputes W/L/F/A from `rounds` and fails if it
 disagrees with that session's `players` totals.
 
-## Glicko-2 ratings
+## Ratings
 
 Computed in the template at render time from `rounds`, so they update themselves when a
 session is added — nothing rating-related is stored in the payload.
 
-- **One rating period per session.** Glickman suggests sizing a period so players average
-  10–15 games; these run 4–7, which mostly shows up as a higher RD.
-- **Sessions without `rounds` are invisible to the ratings.** The algorithm needs
-  individual results, not session totals, so the three standings-only sessions contribute
-  nothing. A player's rating and their standings rank can disagree, and that is expected.
-- **Doubles adaptation.** Glicko-2 is a one-on-one system. Each match collapses the
-  opposing pair into one virtual opponent (mean μ, standard error of that mean for φ), and
-  the expected score comes from the two team averages so a win with a strong partner is
-  worth less. This is a convention, not part of the published system.
-- **Margin is ignored**, as the algorithm specifies — 21–19 and 21–8 move ratings equally.
-- Constants are Glickman's defaults: start 1500 / RD 350 / volatility 0.06, τ = 0.5.
+**TrueSkill is the primary model.** It is built for team games: a side's performance is the
+sum of its members', so one result is divided among four players in proportion to how
+uncertain each already was. That is what distinguishes playing well from being carried.
 
-`analysis-src/glicko-check.js` re-implements the maths independently, verifies it against
-the worked example in Glickman's paper, and diffs its output against the template's. Run it
-after touching any rating code.
+- Defaults: μ 25, σ 25/3, β 25/6, τ 25/300, no draws (a race to 21 cannot tie — equal
+  scores are treated as bad data and skipped).
+- Displayed on an affine map, `1500 + (μ − 25) × 42`, chosen so an unrated player reads as
+  1500 ± 350 exactly as under the old model. σ is scaled by the same factor.
+- σ falls more slowly than Glicko-2's RD did. That is a correction, not a regression: the
+  old doubles hack credited each player with a full independent observation from a result
+  that four people shared, so its RD was overconfident.
+- **Margin of victory** multiplies the mean shift by `ln(margin+1)`, normalised so a typical
+  game sits near 1.0 (currently 0.65×–1.55×), with a `2.2/(2.2 + 0.001 × edge)` damper so a
+  favoured side gains less for a blowout. σ is deliberately *not* scaled — how much a result
+  teaches us should depend on having played, not on the winning margin.
+
+**Glicko-2 still runs alongside, for one column only.** TrueSkill has no volatility
+parameter, so the volatility figure comes from the Glicko-2 model. If that column is ever
+dropped, delete `glickoRatings()` with it.
+
+Common to both:
+
+- **One rating period per session.**
+- **Sessions without `rounds` are invisible.** Both models need individual results, so the
+  three standings-only sessions contribute nothing and a player's rating can disagree
+  sharply with their standings rank. That is expected.
+- Neither models a genuine partnership effect — two players being better *together* than
+  their individual skills imply. That needs far more games to separate from luck.
+
+`analysis-src/ratings-check.js` verifies both. For each model it checks an independent
+implementation against published reference values (Glickman's 2013 worked example; the
+TrueSkill 1v1 and 2v2 reference results), then lifts the real block out of `template.html`
+and diffs it against that implementation over the live payload. Run it after touching any
+rating code.
 
 ## Where the prose lives
 
