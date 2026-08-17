@@ -925,9 +925,10 @@ function render() {
     <div>
       <h4>What these numbers mean</h4>
       <p>Skill comes from TrueSkill, which was built for team games: a side's performance counts as
-      the sum of its members, so one result gets carved up between four people according to how well
-      each was already understood. That is the bit that can tell playing well apart from being
-      carried. Margin of victory is in there too.</p>
+      the sum of its members, so who you had beside you weighs as heavily as who you were up
+      against. Winning the one everybody expected you to win barely shifts the needle, while
+      dragging a result out of a hopeless-looking pairing shifts it a long way. Margin of victory is
+      in there too.</p>
     </div>
     <div class="defs">
       <div>
@@ -987,9 +988,13 @@ function render() {
           GL.sig0 + " default. It wants a lot more rating periods before it means anything, so it " +
           "is in the table for completeness rather than because it is telling you something"
         : volSpread.map(v => v.toFixed(4)).join(" to ")}.</p>
-      <p>Neither model has the faintest concept of who you get along with. A real partnership
-      effect — two people genuinely better together than apart — would need a great many more games
-      before it could be told apart from one good night.</p>
+      <p>What none of this can do is work out which half of a winning pair actually did the work.
+      Both partners move by the same amount, unless one is far less established than the other, in
+      which case the newer player cops more of the swing — that split runs on how unsure we are
+      about each of them, not on who is better. Carry someone to a win and they collect the same as
+      you do. Nor has either model the faintest concept of a genuine partnership effect, two people
+      better together than apart, which would want a great many more games before it could be told
+      apart from one good night.</p>
     </div>`;
 
   document.getElementById("cards").innerHTML = SESSIONS.map((s, i) => {
