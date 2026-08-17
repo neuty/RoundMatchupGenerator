@@ -895,10 +895,15 @@ function render() {
   }).join("");
 
   const top = G.table[0], bot = G.table[G.table.length - 1];
+  /* Whether two players are actually told apart is a question about their
+     difference, not about whether their individual ranges overlap — the
+     overlap test is far more conservative and would call obvious gaps a
+     draw. P(a truly above b) = Phi(diff / sqrt(sd_a^2 + sd_b^2)). */
+  const beats = (a, b) => nCdf((a.r - b.r) / Math.sqrt(a.sd * a.sd + b.sd * b.sd));
   const pairs = [];
   for (let i = 0; i < G.table.length; i++)
     for (let j = i + 1; j < G.table.length; j++)
-      if (G.table[i].r - 1.96 * G.table[i].sd > G.table[j].r + 1.96 * G.table[j].sd)
+      if (beats(G.table[i], G.table[j]) >= 0.95)
         pairs.push(G.table[i].name + " above " + G.table[j].name);
   const totalPairs = (G.table.length * (G.table.length - 1)) / 2;
   const volSpread = VOL.table.map(p => p.sigma);
@@ -906,68 +911,72 @@ function render() {
   document.getElementById("ratingExplain").innerHTML = `
     <div>
       <h4>What these numbers mean</h4>
-      <p>Skill comes from TrueSkill, which was built for team games: a side's performance is treated
-      as the sum of its members', so one result is shared out among four people according to how
-      well each was already understood. That is what lets it tell being good apart from being
-      carried. Margin of victory is folded in as well.</p>
+      <p>Skill comes from TrueSkill, which was built for team games: a side's performance counts as
+      the sum of its members, so one result gets carved up between four people according to how well
+      each was already understood. That is the bit that can tell playing well apart from being
+      carried. Margin of victory is in there too.</p>
     </div>
     <div class="defs">
       <div>
         <h4>Skill</h4>
-        <p>The estimate of playing strength, placed on the familiar scale where <code>1500</code> is
-        an unknown player. On current numbers ${esc(top.name)} beats ${esc(bot.name)}
-        about ${pct(winProb(top, bot))} of the time in a head-to-head of equal partners.</p>
+        <p>The estimate of how good someone actually is, on the usual scale where <code>1500</code>
+        means we have not got a clue yet. On current numbers ${esc(top.name)} beats
+        ${esc(bot.name)} about ${pct(winProb(top, bot))} of the time — assuming partners of equal
+        quality, which as everyone knows never happens.</p>
       </div>
       <div>
         <h4>&sigma; — uncertainty</h4>
-        <p>How unsure the skill estimate is. The true figure sits inside
-        <code>skill ± 2σ</code> about 95% of the time — the range in the table. Everyone starts at
-        <code>350</code>; playing shrinks it, sitting out grows it back. It falls more slowly than
-        under a one-on-one system, which is correct: a shared 2v2 result tells you less about any
-        one player than a singles result would.</p>
+        <p>How much to trust the skill figure. The real number sits inside <code>skill ± 2σ</code>
+        about 95% of the time, which is the range in the table. Everyone starts at <code>350</code>,
+        or complete ignorance. Playing pulls it in; sitting out lets it drift back out. It comes in
+        slower here than it would in singles, and rightly so — when four people share one result,
+        nobody learns that much about any one of them.</p>
       </div>
       <div>
         <h4>Volatility*</h4>
-        <p>How <em>erratic</em> someone is, as opposed to how good — the degree to which results
-        swing beyond what skill and σ predict. TrueSkill has no equivalent, so this one column is
-        still produced by the earlier Glicko-2 model running alongside. A steady player drifts from
-        the <code>0.06</code> start down toward <code>0.03</code>; someone who beats the best one
-        week and loses to the worst the next climbs toward <code>0.10</code>.</p>
+        <p>How <em>erratic</em> someone is, which is a different question from how good. It measures
+        how far results swing beyond what skill and σ were expecting. TrueSkill has no such notion,
+        so this column is still coming from the old Glicko-2 model kept running in the background.
+        Steady types drift from the <code>0.06</code> start down toward <code>0.03</code>. Anyone who
+        rolls the best player one week and gets rolled by the worst the next heads for
+        <code>0.10</code>.</p>
       </div>
     </div>
     <div>
       <h4>How margin of victory is used</h4>
-      <p>A win still counts as a win, but the size of the move scales with
-      <code>ln(margin + 1)</code>, normalised so an ordinary game keeps a multiplier near
-      <code>1</code>. Across the ${G.games} rated games that spans roughly
-      <code>0.65×</code> for a two-point squeaker to <code>1.55×</code> for the widest thrashing. A
-      second factor shrinks the gain when the winning side was already favoured, so running up the
-      score against weak opposition pays progressively less. Only the skill estimate is scaled this
-      way — σ is left alone, because how much a result teaches us should depend on having played,
-      not on how heavily it was won.</p>
+      <p>A win is still a win, but the size of the move scales with <code>ln(margin + 1)</code>,
+      normalised so an ordinary game sits near <code>1</code>. Across the ${G.games} rated games that
+      runs from about <code>0.65×</code> for a two-point nail-biter to <code>1.55×</code> for a
+      proper hiding. A second factor trims the reward when the winning side was already favoured, so
+      flogging someone you were always going to beat earns less and less. Only skill is scaled this
+      way — σ is left out of it, because what a game teaches us depends on having played it, not on
+      how badly you won.</p>
     </div>
     <div>
       <h4>How much to trust this yet</h4>
-      <p>Not much, and the numbers say so themselves. These come from
+      <p>Not much, and the numbers are honest enough to admit it. They come from
       ${G.games} games across ${G.rated.length} ${G.rated.length === 1 ? "session" : "sessions"} — the
-      only ${G.rated.length === 1 ? "one" : "ones"} with a match log, since the model needs
-      individual results rather than session totals.
-      ${unrated ? "The " + unrated + " earlier " + (unrated === 1 ? "session is" : "sessions are") +
-        " invisible to it, so a player's skill and their standings position can disagree sharply." : ""}
-      Every σ is still near ${Math.round(G.table.reduce((a, p) => a + p.sd, 0) / G.table.length)},
-      meaning each estimate carries a 95% range about
-      ${Math.round(G.table.reduce((a, p) => a + 3.92 * p.sd, 0) / G.table.length)} points wide.
-      Of the ${totalPairs} possible pairings, ${pairs.length === 0 ? "none are" :
-        pairs.length + (pairs.length === 1 ? " is" : " are")} separated with any confidence${
-        pairs.length ? " (" + esc(pairs.join(", ")) + ")" : ""}. Treat the order as a first guess.</p>
+      only ${G.rated.length === 1 ? "one" : "ones"} with a match log, because the model needs
+      individual results and session totals are no use to it.
+      ${unrated ? "The " + unrated + " earlier " + (unrated === 1 ? "session may" : "sessions may") +
+        " as well not exist as far as this table is concerned, so a player's skill and their " +
+        "standings position can point in completely different directions." : ""}
+      Every σ is still hanging around ${Math.round(G.table.reduce((a, p) => a + p.sd, 0) / G.table.length)},
+      which means each estimate drags a 95% range about
+      ${Math.round(G.table.reduce((a, p) => a + 3.92 * p.sd, 0) / G.table.length)} points wide behind it.
+      Of the ${totalPairs} possible pairings, ${pairs.length === 0 ? "not a single one can be called" :
+        "only " + pairs.length + (pairs.length === 1 ? " can be called" : " can be called")} apart with
+      95% confidence${pairs.length ? " — " + esc(pairs.join(", ")) : ""}. Everyone else is close
+      enough that the order between them is guesswork. Take it as a first stab and do not go
+      settling any arguments with it.</p>
       <p>Volatility currently spans ${volSpread.every(v => Math.abs(v - GL.sig0) < 0.002)
-        ? "essentially nothing — every player is still within a rounding error of the " +
-          GL.sig0 + " default. It needs many rating periods before it says anything real, so it is " +
-          "shown for completeness rather than because it is informative yet"
+        ? "essentially nothing — everyone is still within a rounding error of the " +
+          GL.sig0 + " default. It wants a lot more rating periods before it means anything, so it " +
+          "is in the table for completeness rather than because it is telling you something"
         : volSpread.map(v => v.toFixed(4)).join(" to ")}.</p>
-      <p>Neither model looks at who partnered whom beyond that single match. A genuine
-      partnership effect — two people who are better together than apart — would need far more
-      games before it could be separated from luck.</p>
+      <p>Neither model has the faintest concept of who you get along with. A real partnership
+      effect — two people genuinely better together than apart — would need a great many more games
+      before it could be told apart from one good night.</p>
     </div>`;
 
   document.getElementById("cards").innerHTML = SESSIONS.map((s, i) => {
