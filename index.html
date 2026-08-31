@@ -1351,31 +1351,56 @@ function getValidMatchups(players, n) {
 
 // --- Pool-based Round Generation ---
 
-// Dominates the recency term so rest counts always balance before spacing is considered.
-const REST_WEIGHT = 1e6
-
-// How overdue each player is for a rest: fewer rests, or longer since the last one, ranks higher.
-function restUrgency(round) {
-  const urgency = {}
-  for (const p of state.players) {
-    const s = state.stats[p]
-    const last = s.lastRestRound < 0 ? 0 : s.lastRestRound
-    urgency[p] = (round - last) - s.restCount * REST_WEIGHT
+// How much history this exact grouping already has: teammate counts down each side, opponent
+// counts across the net. Ranking this above rest recency is what stops a small group settling
+// into fixed blocks that always play — and therefore always rest — together.
+function repeatScore(t1, t2) {
+  let repeats = 0
+  for (const team of [t1, t2]) {
+    for (let i = 0; i < team.length; i++) {
+      for (let j = i + 1; j < team.length; j++) {
+        repeats += state.stats[team[i]].teammates[team[j]] || 0
+      }
+    }
   }
-  return urgency
+  for (const p of t1) {
+    for (const q of t2) repeats += state.stats[p].opponents[q] || 0
+  }
+  return repeats
 }
 
-// Pick the pool matchup whose players are least due for a rest, so the most overdue are left out.
-// Ties fall back to pool order, which is seeded — same seed still gives the same schedule.
-function pickMatchup(active, urgency) {
-  let bestIdx = -1, bestScore = Infinity
+// A matchup's rank, compared term by term — the first term that differs decides it:
+//   1. -restCount total     play whoever has sat out most, so rest counts equalize first
+//   2. -just-rested count   play whoever rested last round, so nobody rests twice running
+//   3. repeat pairings      break up groups that keep landing in the same round together
+//   4. rest recency total   among equals, play whoever rested most recently
+function matchupScore(t1, t2, round) {
+  let rests = 0, justRested = 0, recency = 0
+  for (const p of [...t1, ...t2]) {
+    const s = state.stats[p]
+    rests += s.restCount
+    if (s.lastRestRound === round - 1) justRested++
+    recency += round - (s.lastRestRound < 0 ? 0 : s.lastRestRound)
+  }
+  return [-rests, -justRested, repeatScore(t1, t2), recency]
+}
+
+function scoreLess(a, b) {
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return a[i] < b[i]
+  }
+  return false
+}
+
+// Pick the best-ranked pool matchup with no player already placed this round, leaving the rest
+// to sit out. Ties fall back to pool order, which is seeded — same seed still gives the same schedule.
+function pickMatchup(active, round) {
+  let bestIdx = -1, bestScore = null
   for (let i = 0; i < state.remainingMatchups.length; i++) {
     const [t1, t2] = state.remainingMatchups[i]
-    const players = [...t1, ...t2]
-    if (players.some(p => active.has(p))) continue
-    let score = 0
-    for (const p of players) score += urgency[p]
-    if (score < bestScore) { bestScore = score; bestIdx = i }
+    if (t1.some(p => active.has(p)) || t2.some(p => active.has(p))) continue
+    const score = matchupScore(t1, t2, round)
+    if (bestScore === null || scoreLess(score, bestScore)) { bestScore = score; bestIdx = i }
   }
   return bestIdx
 }
@@ -1505,15 +1530,14 @@ function generateBulk() {
 
 function nextRound(render = true) {
   const round = ++state.currentRound
-  const urgency = restUrgency(round)
   const activePlayers = new Set()
   const matchups = []
 
   while (matchups.length < state.courts) {
-    let idx = pickMatchup(activePlayers, urgency)
+    let idx = pickMatchup(activePlayers, round)
     if (idx === -1) {
       refillPool()
-      idx = pickMatchup(activePlayers, urgency)
+      idx = pickMatchup(activePlayers, round)
       if (idx === -1) break
     }
     const [t1, t2] = state.remainingMatchups.splice(idx, 1)[0]
