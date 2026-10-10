@@ -750,12 +750,14 @@ const sgn = v => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(2);
 function sparkline(trail) {
   const ids = SESSIONS.map(s => s.id);
   const pts = ids.map((id, i) => (id in trail ? { x: i, y: trail[id] } : null)).filter(Boolean);
-  const W = 62, H = 20, PAD = 3;
+  const W = 70, H = 30, PAD = 3;
   const X = i => ids.length > 1 ? PAD + (i * (W - PAD * 2)) / (ids.length - 1) : W / 2;
-  // Session point ratios sit roughly 0.37–0.60, so a 0–1 axis would flatten
-  // every line; a fixed band around 0.5 keeps rows comparable with each other.
-  const LO = 0.35, HI = 0.65;
-  const Y = v => H - PAD - ((Math.min(HI, Math.max(LO, v)) - LO) / (HI - LO)) * (H - PAD * 2);
+  // Session point ratios sit in a narrow band around 0.5, so a 0–1 axis would
+  // flatten every line. Scale to the widest swing anyone has had instead: the
+  // band stays centred on 0.5 and shared by every row, so rows stay comparable.
+  const SWING = Math.max(0.05, ...SESSIONS.flatMap(s => s.players.map(p =>
+    (p.f + p.a) ? Math.abs(p.f / (p.f + p.a) - 0.5) : 0)));
+  const Y = v => H - PAD - ((v - 0.5) / SWING + 1) / 2 * (H - PAD * 2);
   const mid = `<line x1="0" y1="${Y(0.5).toFixed(1)}" x2="${W}" y2="${Y(0.5).toFixed(1)}" stroke="var(--border-strong)" stroke-width="1" stroke-dasharray="2 2"/>`;
   if (pts.length < 2) {
     const p = pts[0];
