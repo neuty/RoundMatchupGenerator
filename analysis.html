@@ -404,7 +404,7 @@
     <section>
       <div class="sec-head">
         <h2>Combined standings</h2>
-        <span class="note"><span id="combinedNote"></span> &middot; Trend is win rate by session &middot; Pt ratio is F &divide; (F + A)</span>
+        <span class="note"><span id="combinedNote"></span> &middot; Trend is point ratio by session &middot; Pt ratio is F &divide; (F + A)</span>
       </div>
       <div class="tbl-wrap">
         <table>
@@ -536,7 +536,7 @@ function combined() {
   SESSIONS.forEach(s => s.players.forEach(p => {
     const t = m[p.name] || (m[p.name] = { name: p.name, w: 0, l: 0, f: 0, a: 0, sessions: 0, trail: {} });
     t.w += p.w; t.l += p.l; t.f += p.f; t.a += p.a; t.sessions++;
-    t.trail[s.id] = (p.w + p.l) ? p.w / (p.w + p.l) : 0;
+    t.trail[s.id] = (p.f + p.a) ? p.f / (p.f + p.a) : 0.5;
   }));
   return Object.values(m).map(withDerived).sort((x, y) => y.winPct - x.winPct || y.diff - x.diff);
 }
@@ -765,7 +765,10 @@ function sparkline(trail) {
   const pts = ids.map((id, i) => (id in trail ? { x: i, y: trail[id] } : null)).filter(Boolean);
   const W = 62, H = 20, PAD = 3;
   const X = i => ids.length > 1 ? PAD + (i * (W - PAD * 2)) / (ids.length - 1) : W / 2;
-  const Y = v => H - PAD - v * (H - PAD * 2);
+  // Session point ratios sit roughly 0.37–0.60, so a 0–1 axis would flatten
+  // every line; a fixed band around 0.5 keeps rows comparable with each other.
+  const LO = 0.35, HI = 0.65;
+  const Y = v => H - PAD - ((Math.min(HI, Math.max(LO, v)) - LO) / (HI - LO)) * (H - PAD * 2);
   const mid = `<line x1="0" y1="${Y(0.5).toFixed(1)}" x2="${W}" y2="${Y(0.5).toFixed(1)}" stroke="var(--border-strong)" stroke-width="1" stroke-dasharray="2 2"/>`;
   if (pts.length < 2) {
     const p = pts[0];
