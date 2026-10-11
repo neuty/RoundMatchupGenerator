@@ -73,7 +73,7 @@ uncertain each already was. That is what distinguishes playing well from being c
   scores are treated as bad data and skipped).
 - Displayed on an affine map, `1500 + (μ − 25) × 42`, chosen so an unrated player reads as
   1500 ± 350 exactly as under the old model. σ is scaled by the same factor.
-- σ falls more slowly than Glicko-2's RD did. That is a correction, not a regression: the
+- σ falls more slowly than the old Glicko-2 RD did. That is a correction, not a regression: the
   old doubles hack credited each player with a full independent observation from a result
   that four people shared, so its RD was overconfident.
 - **Margin of victory** multiplies the mean shift by `ln(margin+1)`, normalised so a typical
@@ -81,24 +81,28 @@ uncertain each already was. That is what distinguishes playing well from being c
   favoured side gains less for a blowout. σ is deliberately *not* scaled — how much a result
   teaches us should depend on having played, not on the winning margin.
 
-**Glicko-2 still runs alongside, for one column only.** TrueSkill has no volatility
-parameter, so the volatility figure comes from the Glicko-2 model. If that column is ever
-dropped, delete `glickoRatings()` with it.
-
-Common to both:
-
 - **One rating period per session.**
-- **Sessions without `rounds` are invisible.** Both models need individual results, so the
+- **Sessions without `rounds` are invisible.** The model needs individual results, so the
   three standings-only sessions contribute nothing and a player's rating can disagree
   sharply with their standings rank. That is expected.
-- Neither models a genuine partnership effect — two players being better *together* than
+- It does not model a genuine partnership effect — two players being better *together* than
   their individual skills imply. That needs far more games to separate from luck.
 
-`analysis-src/ratings-check.js` verifies both. For each model it checks an independent
-implementation against published reference values (Glickman's 2013 worked example; the
-TrueSkill 1v1 and 2v2 reference results), then lifts the real block out of `template.html`
+`analysis-src/ratings-check.js` checks an independent implementation against the published
+TrueSkill 1v1 and 2v2 reference results, then lifts the real block out of `template.html`
 and diffs it against that implementation over the live payload. Run it after touching any
 rating code.
+
+### Swing
+
+The ratings table and player sheet also show **Swing**: the sample standard deviation of a
+player's per-session point ratio, in percentage points. It is not part of the rating model.
+It uses every session, including the standings-only ones, and is blank for anyone with fewer
+than `SWING_MIN` (4) sessions.
+
+It replaced a Glicko-2 volatility column. Glicko-2 volatility moves only in the fifth
+decimal place over a handful of rating periods, so every player read 0.0600 and the column
+said nothing. Glicko-2 was removed with it.
 
 ## Where the prose lives
 
@@ -118,7 +122,7 @@ short punchy closers. Never neutral match reporting.
 
 Two limits:
 
-- **Definitions stay plain.** Explaining what skill, σ, volatility or point ratio actually
+- **Definitions stay plain.** Explaining what skill, σ, swing or point ratio actually
   mean is where clarity beats comedy. The voice goes in the caveats around them.
 - **Accuracy is never traded for a joke.** Every figure reconciles against `payload.json`.
   If a line is funnier when wrong, the line goes.

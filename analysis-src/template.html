@@ -418,7 +418,7 @@
             <tr>
               <th class="l">Player</th>
               <th>Skill</th><th class="l">95% range</th>
-              <th>&sigma;</th><th>Volatility*</th><th>Games</th><th class="l">&nbsp;</th>
+              <th>&sigma;</th><th>Swing</th><th>Games</th><th class="l">&nbsp;</th>
             </tr>
           </thead>
           <tbody id="ratingRows"></tbody>
@@ -528,6 +528,19 @@ function combined() {
   return Object.values(m).map(withDerived).sort((x, y) => y.winPct - x.winPct || y.diff - x.diff);
 }
 
+/* How erratic a player is: the sample standard deviation of their per-session
+   point ratio. Uses every session, match log or not. Too few sessions and it
+   is just measuring luck, so it stays blank below SWING_MIN. */
+const SWING_MIN = 4;
+function swingOf(name) {
+  const v = SESSIONS.map(s => s.players.find(p => p.name === name))
+    .filter(p => p && p.f + p.a).map(p => p.f / (p.f + p.a));
+  if (v.length < SWING_MIN) return null;
+  const m = v.reduce((a, x) => a + x, 0) / v.length;
+  return Math.sqrt(v.reduce((a, x) => a + (x - m) * (x - m), 0) / (v.length - 1));
+}
+const fmtSwing = v => v === null ? "—" : "±" + (v * 100).toFixed(1);
+
 /* Per-player match history, derived from the rounds exports. Only some sessions
    carry one, so every consumer has to cope with a partial or empty history. */
 function history(name) {
@@ -553,97 +566,8 @@ const byRecord = bag => Object.entries(bag)
   .map(([name, r]) => ({ name, ...r, gp: r.w + r.l, rate: r.w / (r.w + r.l) }))
   .sort((a, b) => b.rate - a.rate || b.gp - a.gp);
 
-/* ---------- Glicko-2 ----------
-   Needs individual match results, so only sessions carrying a Rounds export
-   can be rated. One rating period per session.
-
-   Glickman's system is for one-on-one play. The doubles adaptation here
-   collapses the opposing pair into a single virtual opponent (mean mu, and the
-   standard error of that mean for phi) and takes the expected score from the
-   two team averages, so being carried by a strong partner earns less. That
-   adaptation is not part of the published system and is the least certain part
-   of these numbers. Constants are Glickman's defaults; tau caps how fast
-   volatility may move. */
-const GL = { scale: 173.7178, tau: 0.5, eps: 1e-6, base: 1500, rd0: 350, sig0: 0.06 };
-const gPhi = phi => 1 / Math.sqrt(1 + 3 * phi * phi / (Math.PI * Math.PI));
-const gExp = (mu, muOpp, phiOpp) => 1 / (1 + Math.exp(-gPhi(phiOpp) * (mu - muOpp)));
-
-function glickoStep(pl, res) {
-  // Sat out the period: rating and volatility hold, uncertainty grows.
-  if (!res.length) return { mu: pl.mu, phi: Math.sqrt(pl.phi * pl.phi + pl.sigma * pl.sigma), sigma: pl.sigma };
-  let vInv = 0, dSum = 0;
-  for (const r of res) {
-    const gj = gPhi(r.phiOpp);
-    vInv += gj * gj * r.E * (1 - r.E);
-    dSum += gj * (r.s - r.E);
-  }
-  const v = 1 / vInv, delta = v * dSum, phi = pl.phi;
-  const a = Math.log(pl.sigma * pl.sigma);
-  const f = x => {
-    const ex = Math.exp(x);
-    return (ex * (delta * delta - phi * phi - v - ex)) / (2 * Math.pow(phi * phi + v + ex, 2))
-         - (x - a) / (GL.tau * GL.tau);
-  };
-  let A = a, B;
-  if (delta * delta > phi * phi + v) B = Math.log(delta * delta - phi * phi - v);
-  else { let k = 1; while (f(a - k * GL.tau) < 0) k++; B = a - k * GL.tau; }
-  let fA = f(A), fB = f(B);
-  while (Math.abs(B - A) > GL.eps) {
-    const C = A + (A - B) * fA / (fB - fA), fC = f(C);
-    if (fC * fB <= 0) { A = B; fA = fB; } else { fA = fA / 2; }
-    B = C; fB = fC;
-  }
-  const sigma = Math.exp(A / 2);
-  const phiStar = Math.sqrt(phi * phi + sigma * sigma);
-  const phiNew = 1 / Math.sqrt(1 / (phiStar * phiStar) + 1 / v);
-  return { mu: pl.mu + phiNew * phiNew * dSum, phi: phiNew, sigma: sigma };
-}
-
-let RATINGS = null;
-function glickoRatings() {
-  if (RATINGS) return RATINGS;
-  const rated = SESSIONS.filter(s => s.rounds);
-  const roster = [...new Set(rated.flatMap(s => s.rounds.flatMap(r => [...r.t1, ...r.t2])))];
-  const st = {}, trail = {}, played = {};
-  roster.forEach(n => {
-    st[n] = { mu: 0, phi: GL.rd0 / GL.scale, sigma: GL.sig0 };
-    trail[n] = []; played[n] = 0;
-  });
-  rated.forEach(s => {
-    const res = {};
-    roster.forEach(n => (res[n] = []));
-    s.rounds.forEach(r => {
-      [0, 1].forEach(side => {
-        const mine = side ? r.t2 : r.t1, theirs = side ? r.t1 : r.t2;
-        const my = side ? r.s2 : r.s1, their = side ? r.s1 : r.s2;
-        const sc = my > their ? 1 : my < their ? 0 : 0.5;
-        mine.forEach(me => {
-          const mate = mine.find(x => x !== me);
-          const muOpp = (st[theirs[0]].mu + st[theirs[1]].mu) / 2;
-          const phiOpp = Math.sqrt(st[theirs[0]].phi * st[theirs[0]].phi
-                                 + st[theirs[1]].phi * st[theirs[1]].phi) / 2;
-          res[me].push({ muOpp, phiOpp, s: sc, E: gExp((st[me].mu + st[mate].mu) / 2, muOpp, phiOpp) });
-        });
-      });
-    });
-    const next = {};
-    roster.forEach(n => (next[n] = glickoStep(st[n], res[n])));
-    roster.forEach(n => {
-      st[n] = next[n];
-      played[n] += res[n].length;
-      trail[n].push({ short: s.short, label: s.label, games: res[n].length,
-                      r: GL.scale * st[n].mu + GL.base, rd: GL.scale * st[n].phi, sigma: st[n].sigma });
-    });
-  });
-  const table = roster.map(n => ({
-    name: n, games: played[n],
-    r: GL.scale * st[n].mu + GL.base, rd: GL.scale * st[n].phi, sigma: st[n].sigma
-  })).sort((a, b) => b.r - a.r);
-  RATINGS = { rated, table, trail, games: rated.reduce((a, s) => a + s.rounds.length, 0) };
-  return RATINGS;
-}
 /* ---------- TrueSkill ----------
-   The primary rating system. Unlike Glicko-2 it is built for teams: a side's
+   The rating system. Unlike Elo-style systems it is built for teams: a side's
    performance is the sum of its members', so the result is shared out among
    them according to how uncertain each one already was. A settled player and a
    newcomer on the same winning team do not move by the same amount.
@@ -783,8 +707,6 @@ function diffBar(v, max) {
 function render() {
   SESSIONS = DATA.sessions;
   const G = skillRatings();
-  const VOL = glickoRatings();
-  const volOf = n => { const p = VOL.table.find(x => x.name === n); return p ? p.sigma : null; };
   const facts = SESSIONS.map(sessionFacts);
   const games = facts.reduce((a, f) => a + f.games, 0);
   const names = new Set();
@@ -884,14 +806,13 @@ function render() {
   const hi = Math.max.apply(null, G.table.map(p => p.r + 1.96 * p.sd));
   const at = v => ((v - lo) / (hi - lo)) * 100;
   document.getElementById("ratingRows").innerHTML = G.table.map((p, i) => {
-    const vol = volOf(p.name);
     return `
     <tr>
       <td class="l who"><span class="rk">${i + 1}</span>&nbsp; ${esc(p.name)}</td>
       <td>${Math.round(p.r)}</td>
       <td class="l rng">${Math.round(p.r - 1.96 * p.sd)} – ${Math.round(p.r + 1.96 * p.sd)}</td>
       <td>${Math.round(p.sd)}</td>
-      <td>${vol === null ? "&mdash;" : vol.toFixed(4)}</td>
+      <td>${esc(fmtSwing(swingOf(p.name)))}</td>
       <td>${p.games}</td>
       <td class="l"><span class="rbar" aria-hidden="true">
         <i style="left:${at(p.r - 1.96 * p.sd).toFixed(1)}%;width:${(at(p.r + 1.96 * p.sd) - at(p.r - 1.96 * p.sd)).toFixed(1)}%"></i>
@@ -911,7 +832,9 @@ function render() {
       if (beats(G.table[i], G.table[j]) >= 0.95)
         pairs.push(G.table[i].name + " above " + G.table[j].name);
   const totalPairs = (G.table.length * (G.table.length - 1)) / 2;
-  const volSpread = VOL.table.map(p => p.sigma);
+  const swings = combined().map(r => ({ name: r.name, v: swingOf(r.name) }));
+  const swung = swings.filter(s => s.v !== null).sort((a, b) => a.v - b.v);
+  const unswung = swings.filter(s => s.v === null).map(s => s.name);
 
   document.getElementById("ratingExplain").innerHTML = `
     <div>
@@ -939,13 +862,13 @@ function render() {
         nobody learns that much about any one of them.</p>
       </div>
       <div>
-        <h4>Volatility*</h4>
-        <p>How <em>erratic</em> someone is, which is a different question from how good. It measures
-        how far results swing beyond what skill and σ were expecting. TrueSkill has no such notion,
-        so this column is still coming from the old Glicko-2 model kept running in the background.
-        Steady types drift from the <code>0.06</code> start down toward <code>0.03</code>. Anyone who
-        rolls the best player one week and gets rolled by the worst the next heads for
-        <code>0.10</code>.</p>
+        <h4>Swing</h4>
+        <p>How <em>erratic</em> someone is, which is a different question from how good. It is the
+        standard deviation of their point ratio from one session to the next, in percentage points:
+        roughly two Saturdays in three land within that distance of their average. <code>±2</code> is
+        a player you could set your watch by; <code>±4</code> is one you check the weather for.
+        It uses every session, match log or not, and needs ${SWING_MIN} before it shows a number —
+        fewer than that and it is just measuring luck with a ruler.</p>
       </div>
     </div>
     <div>
@@ -975,16 +898,18 @@ function render() {
       95% confidence${pairs.length ? " — " + esc(pairs.join(", ")) : ""}. Everyone else is close
       enough that the order between them is guesswork. Take it as a first stab and do not go
       settling any arguments with it.</p>
-      <p>Volatility currently spans ${volSpread.every(v => Math.abs(v - GL.sig0) < 0.002)
-        ? "essentially nothing — everyone is still within a rounding error of the " +
-          GL.sig0 + " default. It wants a lot more rating periods before it means anything, so it " +
-          "is in the table for completeness rather than because it is telling you something"
-        : volSpread.map(v => v.toFixed(4)).join(" to ")}.</p>
+      <p>${swung.length >= 2
+        ? "Swing runs from " + esc(swung[0].name) + " at " + fmtSwing(swung[0].v) +
+          ", steady as a fence post, to " + esc(swung[swung.length - 1].name) + " at " +
+          fmtSwing(swung[swung.length - 1].v) + ", who could turn up as anybody."
+        : "Swing needs " + SWING_MIN + " sessions a head, and hardly anyone has that many yet."}
+      ${unswung.length ? esc(unswung.join(" and ")) + (unswung.length === 1 ? " has" : " have") +
+        " not turned up often enough to be measured." : ""}</p>
       <p>What none of this can do is work out which half of a winning pair actually did the work.
       Both partners move by the same amount, unless one is far less established than the other, in
       which case the newer player cops more of the swing — that split runs on how unsure we are
       about each of them, not on who is better. Carry someone to a win and they collect the same as
-      you do. Nor has either model the faintest concept of a genuine partnership effect, two people
+      you do. Nor has the model the faintest concept of a genuine partnership effect, two people
       better together than apart, which would want a great many more games before it could be told
       apart from one good night.</p>
     </div>`;
@@ -1078,7 +1003,6 @@ function openPlayer(name) {
   const G = skillRatings();
   const rate = G.table.find(x => x.name === name);
   const rtrail = G.trail[name];
-  const gv = glickoRatings().table.find(x => x.name === name);
   const story = (DATA.players.find(p => p.name === name) || {}).story;
 
   const bySession = SESSIONS.map(s => {
@@ -1110,7 +1034,8 @@ function openPlayer(name) {
 
       <div class="facts">
         ${[["Games", row.gp], ["Win rate", pct(row.winPct)], ["Pt ratio", pct(row.ptRatio)],
-           ["Diff/gm", sgn(row.diff)], ["Sessions", row.sessions + " of " + SESSIONS.length]]
+           ["Diff/gm", sgn(row.diff)], ["Swing", fmtSwing(swingOf(name))],
+           ["Sessions", row.sessions + " of " + SESSIONS.length]]
           .map(([k, v]) => `<div class="fact"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div></div>`).join("")}
       </div>
 
@@ -1121,7 +1046,6 @@ function openPlayer(name) {
             ${[["Skill", Math.round(rate.r)],
                ["95% range", Math.round(rate.r - 1.96 * rate.sd) + "–" + Math.round(rate.r + 1.96 * rate.sd)],
                ["σ", Math.round(rate.sd)],
-               ["Volatility", gv ? gv.sigma.toFixed(4) : "—"],
                ["Rated games", rate.games]]
               .map(([k, v]) => `<div class="fact"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div></div>`).join("")}
           </div>

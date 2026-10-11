@@ -1,6 +1,6 @@
 /* Verifies the rating code that actually ships in template.html.
  *
- * Chain of trust, for each of the two models:
+ * Chain of trust:
  *   1. an independent implementation here is checked against published vectors
  *   2. the block lifted out of the template is diffed against that implementation
  *
@@ -18,7 +18,7 @@ const check = (label, ok, detail) => {
 
 /* ---------- lift the shipped implementations out of the template ---------- */
 const tpl = fs.readFileSync(path.join(DIR, 'template.html'), 'utf8');
-const from = tpl.indexOf('/* ---------- Glicko-2 ----------');
+const from = tpl.indexOf('/* ---------- TrueSkill ----------');
 const to = tpl.indexOf('const pct = v =>');
 if (from < 0 || to < 0 || to <= from) {
   console.error('could not locate the rating blocks in template.html');
@@ -26,96 +26,10 @@ if (from < 0 || to < 0 || to <= from) {
 }
 const shippedSrc = tpl.slice(from, to);
 const load = new Function('SESSIONS', shippedSrc +
-  '\nreturn { glickoRatings, skillRatings, glickoStep, gExp, tsMatch, TS, tsR, tsS, nCdf };');
+  '\nreturn { skillRatings, tsMatch, TS, tsR, tsS, nCdf };');
 
 const payload = JSON.parse(fs.readFileSync(path.join(DIR, 'payload.json'), 'utf8'));
 const api = load(payload.sessions);
-
-/* ================= Glicko-2 ================= */
-console.log('\nGlicko-2');
-const SCALE = 173.7178, TAU = 0.5, EPS = 1e-6, RD0 = 350, SIG0 = 0.06;
-const gg = phi => 1 / Math.sqrt(1 + 3 * phi * phi / (Math.PI * Math.PI));
-const gE = (mu, muO, phiO) => 1 / (1 + Math.exp(-gg(phiO) * (mu - muO)));
-
-function gStep(pl, res) {
-  if (!res.length) return { mu: pl.mu, phi: Math.hypot(pl.phi, pl.sigma), sigma: pl.sigma };
-  let vInv = 0, dSum = 0;
-  for (const r of res) {
-    const gj = gg(r.phiOpp);
-    vInv += gj * gj * r.E * (1 - r.E);
-    dSum += gj * (r.s - r.E);
-  }
-  const v = 1 / vInv, delta = v * dSum, phi = pl.phi, a = Math.log(pl.sigma ** 2);
-  const f = x => {
-    const ex = Math.exp(x);
-    return (ex * (delta ** 2 - phi ** 2 - v - ex)) / (2 * (phi ** 2 + v + ex) ** 2) - (x - a) / TAU ** 2;
-  };
-  let A = a, B;
-  if (delta ** 2 > phi ** 2 + v) B = Math.log(delta ** 2 - phi ** 2 - v);
-  else { let k = 1; while (f(a - k * TAU) < 0) k++; B = a - k * TAU; }
-  let fA = f(A), fB = f(B);
-  while (Math.abs(B - A) > EPS) {
-    const C = A + (A - B) * fA / (fB - fA), fC = f(C);
-    if (fC * fB <= 0) { A = B; fA = fB; } else fA /= 2;
-    B = C; fB = fC;
-  }
-  const sigma = Math.exp(A / 2);
-  const phiNew = 1 / Math.sqrt(1 / (phi ** 2 + sigma ** 2) + 1 / v);
-  return { mu: pl.mu + phiNew ** 2 * dSum, phi: phiNew, sigma };
-}
-
-{ // Glickman, "Example of the Glicko-2 system" (2013)
-  const me = { mu: 0, phi: 200 / SCALE, sigma: 0.06 };
-  const res = [{ r: 1400, rd: 30, s: 1 }, { r: 1550, rd: 100, s: 0 }, { r: 1700, rd: 300, s: 0 }]
-    .map(o => {
-      const muOpp = (o.r - 1500) / SCALE, phiOpp = o.rd / SCALE;
-      return { muOpp, phiOpp, s: o.s, E: gE(me.mu, muOpp, phiOpp) };
-    });
-  const mine = gStep(me, res);
-  const theirs = api.glickoStep(me, res.map(r => ({ ...r, E: api.gExp(me.mu, r.muOpp, r.phiOpp) })));
-  const r = SCALE * theirs.mu + 1500, rd = SCALE * theirs.phi;
-  check('shipped matches the paper (r 1464.06, RD 151.52, vol 0.05999)',
-    Math.abs(r - 1464.06) < 0.02 && Math.abs(rd - 151.52) < 0.02 && Math.abs(theirs.sigma - 0.05999) < 2e-5,
-    `got r=${r.toFixed(2)} RD=${rd.toFixed(2)} vol=${theirs.sigma.toFixed(5)}`);
-  check('independent matches the paper',
-    Math.abs(SCALE * mine.mu + 1500 - 1464.06) < 0.02);
-}
-
-function glickoIndependent(sessions) {
-  const rated = sessions.filter(s => s.rounds);
-  const roster = [...new Set(rated.flatMap(s => s.rounds.flatMap(r => [...r.t1, ...r.t2])))];
-  const st = {};
-  roster.forEach(n => (st[n] = { mu: 0, phi: RD0 / SCALE, sigma: SIG0 }));
-  rated.forEach(s => {
-    const res = {};
-    roster.forEach(n => (res[n] = []));
-    s.rounds.forEach(r => [0, 1].forEach(side => {
-      const mine = side ? r.t2 : r.t1, theirs = side ? r.t1 : r.t2;
-      const my = side ? r.s2 : r.s1, their = side ? r.s1 : r.s2;
-      const sc = my > their ? 1 : my < their ? 0 : 0.5;
-      mine.forEach(me => {
-        const mate = mine.find(x => x !== me);
-        const muOpp = (st[theirs[0]].mu + st[theirs[1]].mu) / 2;
-        const phiOpp = Math.hypot(st[theirs[0]].phi, st[theirs[1]].phi) / 2;
-        res[me].push({ muOpp, phiOpp, s: sc, E: gE((st[me].mu + st[mate].mu) / 2, muOpp, phiOpp) });
-      });
-    }));
-    const next = {};
-    roster.forEach(n => (next[n] = gStep(st[n], res[n])));
-    roster.forEach(n => (st[n] = next[n]));
-  });
-  return Object.fromEntries(roster.map(n => [n, { sigma: st[n].sigma, r: SCALE * st[n].mu + 1500 }]));
-}
-{
-  const mine = glickoIndependent(payload.sessions);
-  const theirs = api.glickoRatings();
-  let worst = 0;
-  theirs.table.forEach(p => {
-    worst = Math.max(worst, Math.abs(p.r - mine[p.name].r), Math.abs(p.sigma - mine[p.name].sigma) * 1e4);
-  });
-  check('shipped matches an independent implementation over the payload', worst < 1e-6,
-    `max delta ${worst.toExponential(2)}`);
-}
 
 /* ================= TrueSkill ================= */
 console.log('\nTrueSkill');
@@ -223,13 +137,11 @@ function tsIndependent(sessions) {
 }
 
 /* ---------- the resulting table ---------- */
-console.log('\nplayer     skill    sigma   95% range        games   volatility');
-const vol = api.glickoRatings().table;
+console.log('\nplayer     skill    sigma   95% range        games');
 for (const p of api.skillRatings().table) {
-  const v = vol.find(x => x.name === p.name);
   console.log(`${p.name.padEnd(9)} ${Math.round(p.r).toString().padStart(5)}    ${Math.round(p.sd).toString().padStart(4)}` +
     `   ${Math.round(p.r - 1.96 * p.sd)}–${Math.round(p.r + 1.96 * p.sd)}`.padEnd(16) +
-    `   ${String(p.games).padStart(3)}     ${v ? v.sigma.toFixed(5) : '—'}`);
+    `   ${String(p.games).padStart(3)}`);
 }
 
 console.log(failed ? '\nFAILED' : '\nall checks passed');
