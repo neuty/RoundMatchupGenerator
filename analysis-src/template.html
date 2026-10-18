@@ -391,7 +391,7 @@
     <section>
       <div class="sec-head">
         <h2>Combined standings</h2>
-        <span class="note"><span id="combinedNote"></span> &middot; Trend is point ratio by session &middot; Pt ratio is F &divide; (F + A)</span>
+        <span class="note"><span id="combinedNote"></span> &middot; Trend is skill after each rated session &middot; Pt ratio is F &divide; (F + A)</span>
       </div>
       <div class="tbl-wrap">
         <table>
@@ -521,9 +521,8 @@ function sessionFacts(s) {
 function combined() {
   const m = {};
   SESSIONS.forEach(s => s.players.forEach(p => {
-    const t = m[p.name] || (m[p.name] = { name: p.name, w: 0, l: 0, f: 0, a: 0, sessions: 0, trail: {} });
+    const t = m[p.name] || (m[p.name] = { name: p.name, w: 0, l: 0, f: 0, a: 0, sessions: 0 });
     t.w += p.w; t.l += p.l; t.f += p.f; t.a += p.a; t.sessions++;
-    t.trail[s.id] = (p.f + p.a) ? p.f / (p.f + p.a) : 0.5;
   }));
   return Object.values(m).map(withDerived).sort((x, y) => y.winPct - x.winPct || y.diff - x.diff);
 }
@@ -671,18 +670,23 @@ const winProb = (a, b) => nCdf(
 const pct = v => (v * 100).toFixed(1) + "%";
 const sgn = v => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(2);
 
-function sparkline(trail) {
-  const ids = SESSIONS.map(s => s.id);
-  const pts = ids.map((id, i) => (id in trail ? { x: i, y: trail[id] } : null)).filter(Boolean);
+/* Skill after each rated session, plotted only where the player actually
+   played: a rating held through a session sat out is not new information.
+   The x-axis is the rated sessions, since standings-only ones have no rating. */
+function sparkline(name) {
+  const G = skillRatings();
+  const ids = G.rated.map(s => s.id);
+  const pts = (G.trail[name] || []).map((t, i) => (t.games ? { x: i, y: t.r } : null)).filter(Boolean);
   const W = 70, H = 30, PAD = 3;
+  if (!pts.length) return "";
   const X = i => ids.length > 1 ? PAD + (i * (W - PAD * 2)) / (ids.length - 1) : W / 2;
-  // Session point ratios sit in a narrow band around 0.5, so a 0–1 axis would
-  // flatten every line. Scale to the widest swing anyone has had instead: the
-  // band stays centred on 0.5 and shared by every row, so rows stay comparable.
-  const SWING = Math.max(0.05, ...SESSIONS.flatMap(s => s.players.map(p =>
-    (p.f + p.a) ? Math.abs(p.f / (p.f + p.a) - 0.5) : 0)));
-  const Y = v => H - PAD - ((v - 0.5) / SWING + 1) / 2 * (H - PAD * 2);
-  const mid = `<line x1="0" y1="${Y(0.5).toFixed(1)}" x2="${W}" y2="${Y(0.5).toFixed(1)}" stroke="var(--border-strong)" stroke-width="1" stroke-dasharray="2 2"/>`;
+  // One band shared by every row, fitted to the highest and lowest rating anyone
+  // has held, so rows stay comparable while using the full height.
+  const base = tsR(TS.mu0);
+  const all = Object.values(G.trail).flatMap(tr => tr.filter(t => t.games).map(t => t.r));
+  const lo = Math.min(base, ...all), hi = Math.max(base, ...all), span = Math.max(1, hi - lo);
+  const Y = v => H - PAD - ((v - lo) / span) * (H - PAD * 2);
+  const mid = `<line x1="0" y1="${Y(base).toFixed(1)}" x2="${W}" y2="${Y(base).toFixed(1)}" stroke="var(--border-strong)" stroke-width="1" stroke-dasharray="2 2"/>`;
   if (pts.length < 2) {
     const p = pts[0];
     return `<svg class="spark" width="${W}" height="${H}" aria-hidden="true">${mid}<circle cx="${X(p.x).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="2.6" fill="var(--faint)"/></svg>`;
@@ -774,8 +778,8 @@ function render() {
         <div><span class="k">Rating</span><span class="v">${rt ? Math.round(rt.r) : "&mdash;"}</span></div>
       </div>
       <div class="pcard-form">
-        <span class="lbl">Form</span>${sparkline(r.trail)}
-        <span class="lbl">${esc(SESSIONS[0].short)} &rarr; ${esc(SESSIONS[SESSIONS.length - 1].short)}</span>
+        <span class="lbl">Skill</span>${sparkline(r.name)}
+        <span class="lbl">${esc(skillRatings().rated[0].short)} &rarr; ${esc(SESSIONS[SESSIONS.length - 1].short)}</span>
       </div>
       ${st.story ? `<p class="pcard-story">${esc(st.story)}</p>` : ""}
       <div class="scard-cta">Full history <span aria-hidden="true">&rarr;</span></div>
@@ -787,7 +791,7 @@ function render() {
     <tr>
       <td class="l who"><span class="rk">${i + 1}</span>&nbsp; ${esc(r.name)}${
         r.sessions < SESSIONS.length ? ` <span class="part">${r.sessions}s</span>` : ""}</td>
-      <td class="l">${sparkline(r.trail)}</td>
+      <td class="l">${sparkline(r.name)}</td>
       <td>${r.w}</td><td>${r.l}</td><td>${r.gp}</td>
       <td>${pct(r.winPct)}</td>
       <td>${r.f}</td><td>${r.a}</td>
